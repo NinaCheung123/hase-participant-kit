@@ -794,7 +794,10 @@ def answers(args):
     the answer comparison blind and compares the two methods themselves.
     """
     folder = args.folder
-    tasks_ = read_json(args.tasks)[:args.n]
+    all_tasks = read_json(args.tasks)
+    tasks_ = all_tasks[:args.n]
+    if len(all_tasks) > len(tasks_):
+        print(f"Warning: only the first {len(tasks_)} of {len(all_tasks)} tasks are answered (--n {args.n}); the rest are dropped.")
     if not tasks_ or any(not t.get("task_id") or not t.get("opening_prompt") for t in tasks_):
         raise ValueError("The tasks file is empty or malformed. Run tasks again.")
     items = generated_items(folder)
@@ -1038,7 +1041,7 @@ def main():
     ans = commands.add_parser("answers", help="answer the tasks with no skills / each method's items")
     ans.add_argument("--folder", type=Path, default=Path("my-study"))
     ans.add_argument("--tasks", type=Path, default=Path("tasks.review.json"))
-    ans.add_argument("--n", type=int, default=6, help="maximum number of tasks to answer (default 6)")
+    ans.add_argument("--n", type=int, default=8, help="maximum number of tasks to answer (default 8: four common, two replay, one own, one control)")
     ans.add_argument("--model", default="sonnet")
     ans.set_defaults(handler=answers, demo=False)
     comp = commands.add_parser("compare", help="judge the answers blind (best / worst / tie / skip)")
