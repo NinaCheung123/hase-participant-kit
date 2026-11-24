@@ -715,13 +715,15 @@ def compare(args):
     state.setdefault("checklist", {})
     pending = [t for t in tasks if t["task_id"] not in state["checklist"] and t["task_id"] not in state["stage1"]]
     if pending:
-        print("Before you see any answer: for each task, write up to 3 things a good answer must do for YOU "
-              "(for example 'conclusion first'). Press Enter to skip a task.")
+        print("Before you see any answer, think about what a good answer to each task must do for you.\n"
+              "Type up to 3 short points, one per line, and press Enter after each. When you have no more points\n"
+              "(or none at all), press Enter on an empty line to move on. Nothing is graded; your points are only\n"
+              "used afterwards to explain your ranking.")
     for task in pending:
         print(f"\n=== Task {task['task_id']} ===\n{task.get('task', '(task text kept local)')}")
         items = []
         while len(items) < 3:
-            item = input(f"Checklist item {len(items) + 1} (Enter to stop): ").strip()
+            item = input(f"Point {len(items) + 1} (type it and press Enter; empty line = done): ").strip()
             if not item:
                 break
             items.append(item)

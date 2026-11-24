@@ -45,7 +45,7 @@ python3 study.py compare     # write your checklist first, then judge the answer
 
 `answers` writes each task three ways: without skills, with everything the first method generated, and with everything the second method generated. You have not seen any item yet, so the comparison stays blind.
 
-In `compare`, for each task you first write up to three things a good answer must do for you (Enter to skip). You then see the answers in random order with no labels and pick the best and the worst, or say `tie` (cannot tell) or `skip` (not a fair test). Common tasks show a core rubric. Afterwards you mark which answers meet your checklist; this explains your ranking and never changes it. There are no numeric ratings.
+In `compare`, for each task you first type up to three short points about what a good answer must do for you, one per line (an empty line means you are done; you can leave it empty). You then see the answers in random order with no labels and pick the best and the worst, or say `tie` (cannot tell) or `skip` (not a fair test). Common tasks show a core rubric. Afterwards you mark which answers meet your checklist; this explains your ranking and never changes it. There are no numeric ratings.
 
 ## 4. Look at the items, keep or delete, choose
 
