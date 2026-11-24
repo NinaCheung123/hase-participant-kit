@@ -1,0 +1,8 @@
+__pycache__/
+*.review.json
+my-study*/
+demo-study*/
+*.local.json
+*.needs-review
+*.zip
+tasks.review.json
