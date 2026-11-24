@@ -14,10 +14,12 @@ Open a terminal in this folder. Use one of these commands, depending on where yo
 
 ```sh
 python3 study.py prepare --claude-logs                       # Claude Code logs on this computer
-python3 study.py prepare --cursor-logs                       # Cursor agent transcripts
+python3 study.py prepare --cursor-logs                       # Cursor agent transcripts (~/.cursor/projects)
 python3 study.py prepare --codex-logs                        # Codex rollout logs
 python3 study.py prepare --export /path/to/conversations.json   # unzipped Claude.ai or ChatGPT export
 ```
+
+**Cursor users:** use `--cursor-logs` for both `prepare` and `tasks` (same flag). The kit reads `~/.cursor/projects/*/agent-transcripts/*/*.jsonl` on your machine, skips subagent files, keeps only your user messages, and runs the same sampling and privacy filter as for Claude Code. Generation and answering still use **your Claude login** (`claude` CLI), because that is how the study calls the model.
 
 The kit reads your history on your computer and picks **about 5 days** from the 30 days before your most recent 14 days (those 14 days are kept as the test window for step 2). It prefers busy days, one per week where possible, and skips days on which many messages touch sensitive topics; it prints the dates it used. From each day it takes about 10 of your messages **in the order you sent them**, short or correcting ones first. For those it also attaches the last 300 characters of what the assistant said just before, so a correction such as "shorter" can be understood; no other assistant text is read. Change the number of days with `--n-days N`, choose days yourself with `--dates 2026-11-03,2026-11-10`, and move the window with `--days N` and `--exclude-recent-days N`. A longer window costs nothing extra: history is read on your computer and only the selected messages are sent.
 
@@ -43,30 +45,43 @@ Run the commands **one at a time** and wait for the `Next:` line each prints; do
 
 ```sh
 python3 study.py answers     # about 2 to 5 minutes of waiting, roughly 8k to 14k tokens (estimate)
-python3 study.py compare     # judge the answers blind
 ```
 
 `answers` writes each task three ways: without skills, with everything the first method generated, and with everything the second method generated. You have not seen any item yet, so the comparison stays blind.
 
-In `compare` you see, for each task, the answers in random order with no labels. Pick the best and the worst, or say `tie` (cannot tell) or `skip` (not a fair test). Then say how clear the difference was (clear, slight, or forced: you had to pick but could hardly tell), and add, if you want, one line on why (optional: press Enter to skip). There are no numeric ratings.
-
-## 4. Look at the items, keep or delete, choose
+**Option A — terminal**
 
 ```sh
-python3 study.py confirm     # now you see the items: keep or delete each (e = edit it first); add what was missed
-python3 study.py choose      # which of the two sets (X or Y) is the better one to keep and build on?
+python3 study.py compare     # judge the answers blind
+python3 study.py confirm     # keep or delete each item
+python3 study.py choose      # which set (X or Y) to keep and build on
+```
+
+**Option B — browser (same judgements, easier to read long answers)**
+
+```sh
+python3 study.py web         # writes my-study/web_session.json and opens study-web/index.html
+```
+
+Load `web_session.json` in the page (or load `eval_answers.local.json`, `cards.local.json`, and `key.share.json`). Complete compare → keep/delete → choose, download the three `.share.csv` files into `my-study/`, then continue with `bundle`. Nothing is uploaded; the page runs only on your computer.
+
+In either path: pick best and worst, or `tie` / `skip`; say how clear it was (clear, slight, or forced); optional one-line reason. No numeric ratings.
+
+## 4. Export kept items (after confirm / choose)
+
+```sh
 python3 study.py export      # your kept items as ready-to-use files in my-study/my-skills/
 ```
 
-Keeping or deleting each item is the required part and takes a key per item. Editing and adding are optional. In `choose` you imagine keeping one set as the standing instructions for your future work and answer `x`, `y`, `same` or `neither`, with a one-line reason and an optional comment on anything about the study that was unclear or took long. `export` writes `principles.md` and `skills/*/SKILL.md`, ordinary text files you can edit later.
+If you used the terminal path, `confirm` and `choose` already wrote the share files. Editing items is optional. In `choose` (or the web page) you answer `x`, `y`, `same` or `neither`, with a one-line reason. `export` writes `principles.md` and `skills/*/SKILL.md`.
 
-## 5. Return your files
+## 5. Return your files (upload, no email)
 
 ```sh
 python3 study.py bundle      # writes my-study/study_files.zip
 ```
 
-The zip holds only **`decisions.share.csv`**, **`compare.share.csv`**, **`choice.share.csv`** and **`key.share.json`**. Each step prints the path and an `open` command for its file. Open each file first and delete any row you do not want to share (run `bundle` again afterwards), then email the zip to yuwen.zhang@uzh.ch. After `choose` the tool tells you which method made which set; until then do not open the key, which says the same. The files contain a random participant code, item types, categories, conversation counts, your decisions, your best and worst picks per task, your set choice and the short reasons you wrote; never the text of any item, task or answer. Keep the history, items, tasks and answers private. If you decide not to take part, you can stop and keep the files on your own computer.
+The zip holds only **`decisions.share.csv`**, **`compare.share.csv`**, **`choice.share.csv`** and **`key.share.json`**. Each step prints the path and an `open` command for its file. Open each file first and delete any row you do not want to share (run `bundle` again afterwards), then upload the zip at https://drive.switch.ch/index.php/s/DpdfHjo9pmGMpdJ (no login; the page is upload only, so you cannot see other files). Your file is named with your random participant code, not your name. The drop folder records only your connection, not who you are. After `choose` the tool tells you which method made which set; until then do not open the key, which says the same. The files contain a random participant code, item types, categories, conversation counts, your decisions, your best and worst picks per task, your set choice and the short reasons you wrote; never the text of any item, task or answer. Keep the history, items, tasks and answers private. If you decide not to take part, you can stop and keep the files on your own computer.
 
 ## Optional offline walkthrough
 

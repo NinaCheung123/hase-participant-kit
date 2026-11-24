@@ -678,6 +678,43 @@ FILE_REFS = re.compile(r"\.(md|py|json|csv|pdf|js|ts|ipynb)\b|\[URL\]|\brun\b|\b
 SHARE_FILES = ("decisions.share.csv", "compare.share.csv", "choice.share.csv", "key.share.json")
 
 
+def web(args):
+    """Write one browser session file and open the local judging page (compare → confirm → choose)."""
+    folder = args.folder
+    answers_path = folder / "eval_answers.local.json"
+    cards_path = folder / "cards.local.json"
+    key_path = folder / "key.share.json"
+    for path, label in ((answers_path, "answers"), (cards_path, "cards"), (key_path, "key")):
+        if not path.exists():
+            raise ValueError(f"Missing {path.name}. Run generate and answers first ({label}).")
+    payload = {
+        "answers": read_json(answers_path),
+        "cards": read_json(cards_path),
+        "key": read_json(key_path),
+    }
+    out = folder / "web_session.json"
+    save_json(out, payload)
+    page = Path(__file__).resolve().parent / "study-web" / "index.html"
+    if not page.exists():
+        raise ValueError(f"Web page missing: {page}")
+    print("Browser judging page (local files only; nothing is uploaded).")
+    print(f"  Page: {page}")
+    print(f"  Session file to load: {out.resolve()}")
+    show_file(out)
+    if not args.no_open:
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(page)], check=False)
+            elif sys.platform.startswith("win"):
+                os.startfile(str(page))  # type: ignore[attr-defined]
+            else:
+                subprocess.run(["xdg-open", str(page)], check=False)
+        except OSError as error:
+            print(f"Could not open the browser automatically ({error}). Open the page path above yourself.")
+    print("After you download the three .share.csv files from the page, put them in this folder, then:")
+    print(f"  python3 study.py bundle --folder {folder}")
+
+
 def bundle(args):
     """Zip the files you return, and nothing else (no history, items, tasks, answers or checklist wording)."""
     folder = args.folder
@@ -692,7 +729,7 @@ def bundle(args):
             archive.write(folder / name, name)
     print(f"Wrote {out} with: {', '.join(needed)}.")
     print("Open each file first and delete any row you do not want to share, then run this command again. "
-          "Email the zip to the investigator named in your consent form.")
+          "Upload the zip at https://drive.switch.ch/index.php/s/DpdfHjo9pmGMpdJ (no login needed; the file is named with your random participant code).")
 
 
 def ask(args):
@@ -1028,13 +1065,18 @@ def main():
     demo = commands.add_parser("demo", help="exercise the workflow offline with synthetic input")
     demo.add_argument("--folder", type=Path, default=Path("demo-study"))
     demo.set_defaults(handler=generate, demo=True)
-    for name, handler, text in (("bundle", bundle, "zip the files you return by email"),
+    for name, handler, text in (("bundle", bundle, "zip the files you upload"),
                                 ("confirm", confirm, "keep, edit or delete each card; add missed ones"),
                                 ("choose", choose, "choose between the two generated sets"),
                                 ("export", export, "write your kept skills and principles as files")):
         sub = commands.add_parser(name, help=text)
         sub.add_argument("--folder", type=Path, default=Path("my-study"))
         sub.set_defaults(handler=handler)
+    web_cmd = commands.add_parser(
+        "web", help="open the local browser page for compare → confirm → choose (after answers)")
+    web_cmd.add_argument("--folder", type=Path, default=Path("my-study"))
+    web_cmd.add_argument("--no-open", action="store_true", help="write web_session.json only; do not open a browser")
+    web_cmd.set_defaults(handler=web)
     asking = commands.add_parser("ask", help="optional: add a question of your own as the last task")
     asking.add_argument("--tasks", type=Path, default=Path("tasks.review.json"))
     asking.set_defaults(handler=ask)
