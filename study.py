@@ -528,7 +528,19 @@ def choose(args):
         writer.writeheader()
         writer.writerow({"participant": state["participant"], "chosen_method": chosen,
                          "reason": state["choice"]["reason"], "comments": state["choice"].get("comments", "")})
-    print("Review your choice before you send it.")
+    print("\nYour choice is saved. Now you can see which method made which set.")
+    for letter in "XY":
+        method = key["sets"][letter]
+        how = ("one pass over your messages with skill-writing guidance, as you would do it today"
+               if method == "direct" else
+               "found the moments where you corrected the assistant, kept only rules that recur in two or more "
+               "chats, dropped rules a later message reversed, and checked for counterexamples before writing")
+        print(f"  Set {letter} = {method}: {how}.")
+    print("  In the answers: A = no skills, B = the direct set, C = the structured set (in compare they were "
+          "shuffled as X, Y, Z).")
+    if pick in ("x", "y"):
+        print(f"  You chose the {chosen} set.")
+    print("\nReview your choice before you send it.")
     show_file(folder / "choice.share.csv")
     print("Next: python3 study.py export")
 

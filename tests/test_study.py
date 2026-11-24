@@ -327,6 +327,8 @@ class AnswerStage(unittest.TestCase):
         with feed("x", "ok", ""):
             out = run(study.choose, folder=self.folder)
         self.assertIn("without saying which is which", out)
+        self.assertIn("Set X =", out)
+        self.assertIn("A = no skills", out)
 
     def test_similarity_is_word_overlap(self):
         self.assertEqual(study.similarity("a b c", "a b c"), 1.0)
