@@ -311,5 +311,109 @@ class AnswerStage(unittest.TestCase):
         self.assertEqual(rows(self.folder / "choice.share.csv")[0]["chosen_method"], "same")
 
 
+class DayTurn:
+    def __init__(self, day, minute, text, session, prev=""):
+        self.text, self.prev, self.session = text, prev, session
+        self.ts = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc) + timedelta(days=day, minutes=minute)
+        self.kind, self.source, self.index = "prompt", "claude", minute
+
+
+def busy_day(day, n, session="s", sensitive=0):
+    out = []
+    for m in range(n):
+        text = ("My landlord and the lease again please" if m < sensitive
+                else f"Plain neutral request number {m} on day {day} about the quarterly planning document")
+        out.append(DayTurn(day, m, text, f"{session}{day}-{m % 3}"))
+    return out
+
+
+class DaySelection(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+
+    def prepare(self, turns, **kw):
+        args = dict(output=self.dir / f"h{len(list(self.dir.iterdir()))}.json", max_messages=48, days=60,
+                    exclude_recent_days=0, n_days=5, dates=None, block=None, review=False)
+        args.update(kw)
+        with mock.patch.object(study, "load_turns", lambda a: turns):
+            out = run(study.prepare, **args)
+        return json.loads(args["output"].read_text()), out
+
+    def test_one_busy_day_per_week_in_order_with_day_labels(self):
+        turns = []
+        for week in range(6):                      # six weeks; two busy days in each, one busier
+            turns += busy_day(week * 7 + 1, 14) + busy_day(week * 7 + 3, 10)
+        rows_, out = self.prepare(turns)
+        self.assertEqual(sorted({r["day"] for r in rows_}), ["d1", "d2", "d3", "d4", "d5"])
+        self.assertLessEqual(len(rows_), 50)
+        self.assertEqual([r["id"] for r in rows_], [f"m{i + 1}" for i in range(len(rows_))])
+        days_used = [d for d in out.split("(")[1].split(")")[0].split(", ")]
+        weeks = {datetime.strptime(d, "%Y-%m-%d").isocalendar()[1] for d in days_used}
+        self.assertEqual(len(weeks), 5)             # five different weeks
+        self.assertEqual([r["day"] for r in rows_], sorted(r["day"] for r in rows_))   # chronological
+
+    def test_personal_day_is_skipped(self):
+        turns = busy_day(1, 12) + busy_day(10, 12, sensitive=8) + busy_day(20, 12)
+        rows_, out = self.prepare(turns, n_days=3)
+        self.assertNotIn("2026-11-11", out)
+        self.assertEqual(len({r["day"] for r in rows_}), 2)     # the personal day is not used, the other two are
+
+    def test_dates_override(self):
+        turns = busy_day(1, 12) + busy_day(10, 12) + busy_day(20, 12)
+        rows_, out = self.prepare(turns, dates="2026-11-11")
+        self.assertEqual({r["day"] for r in rows_}, {"d1"})
+        self.assertIn("2026-11-11", out)
+        with self.assertRaises(ValueError):
+            self.prepare(turns, dates="2030-01-01")
+
+    def test_sparse_history_still_works(self):
+        rows_, out = self.prepare([DayTurn(3, 0, "A short note about the report", "sa"),
+                                   DayTurn(3, 1, "Another note about the report plan", "sb")])
+        self.assertEqual(len(rows_), 2)
+        self.assertIn("smaller days were used", out)
+
+    def test_cap_per_day_keeps_total_near_max(self):
+        turns = []
+        for week in range(6):
+            turns += busy_day(week * 7 + 1, 40)
+        rows_, _ = self.prepare(turns, max_messages=20, n_days=5)
+        self.assertLessEqual(len(rows_), 20)
+        self.assertEqual({r["day"] for r in rows_}, {"d1", "d2", "d3", "d4", "d5"})
+
+    def test_ai_tail_only_for_short_or_steering_and_masked_and_filtered(self):
+        long_neutral = "Please prepare the quarterly planning document with the usual sections and a tidy summary"
+        turns = []
+        for m in range(8):
+            turns.append(DayTurn(1, m, long_neutral + f" version {m}", f"s{m % 2}", prev="assistant long reply " + "x" * 500))
+        turns += [DayTurn(1, 20, "Shorter please", "s0", prev="Here is a long reply see https://x.io/a and mail a@b.com"),
+                  DayTurn(1, 21, "No, I said use plain words instead of jargon here", "s1", prev="Your landlord lease notes"),
+                  DayTurn(1, 22, "Again, put the answer first", "s0", prev="y" * 600)]
+        rows_, out = self.prepare(turns, n_days=1)
+        with_ai = [r for r in rows_ if "ai" in r]
+        self.assertEqual(len(with_ai), 2)                       # Shorter + Again; the landlord tail is dropped
+        self.assertTrue(all(len(r["ai"]) <= study.MAX_AI_CHARS for r in with_ai))
+        self.assertFalse(any("ai" in r for r in rows_ if r["text"].startswith("Please prepare")))
+        shorter = next(r for r in rows_ if r["text"] == "Shorter please")
+        self.assertIn("[URL]", shorter["ai"])
+        self.assertNotIn("a@b.com", shorter["ai"])
+        self.assertIn("2 short or correcting messages carry", out)
+
+    def test_history_file_accepts_day_and_ai_but_not_other_keys_or_long_ai(self):
+        good = [{"id": "m1", "chat": "c1", "day": "d1", "text": "a", "ai": "tail"},
+                {"id": "m2", "chat": "c2", "day": "d1", "text": "b"}]
+        path = self.dir / "g.json"
+        path.write_text(json.dumps(good))
+        self.assertEqual(len(study.load_history(path)), 2)
+        for bad in ([{**good[0], "extra": 1}, good[1]], [{**good[0], "ai": "z" * 301}, good[1]],
+                    [{**good[0], "day": "today"}, good[1]]):
+            path.write_text(json.dumps(bad))
+            with self.assertRaises(ValueError):
+                study.load_history(path)
+
+    def test_prompts_explain_ai_and_day_fields(self):
+        self.assertIn("ai:", study.FIELDS_NOTE)
+        self.assertIn("day label", study.FIELDS_NOTE)
+
+
 if __name__ == "__main__":
     unittest.main()

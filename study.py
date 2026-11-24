@@ -12,7 +12,7 @@ import tempfile
 import uuid
 import zipfile
 from collections import Counter
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from context_user.detect import own_words
@@ -22,7 +22,12 @@ from context_user.sources import (CLAUDE_DIR, CODEX_DIR, CURSOR_TRANSCRIPTS_DIR,
 
 RECOMMENDED_TURNS = 48   # a recommendation, not a limit: enough for patterns, cheap to run
 MAX_TURNS = 150          # safety ceiling so one run cannot use up a usage allowance
-MAX_PER_CHAT = 8
+MAX_PER_CHAT = 12
+N_DAYS = 5               # days read in full (in order), spread over different weeks where possible
+MIN_DAY_MESSAGES = 6     # a day needs this many usable messages to be preferred
+PERSONAL_DAY_SHARE = 0.4  # a day where more than this share of messages hit the sensitive rules is skipped
+SHORT_CHARS = 80
+MAX_AI_CHARS = 300       # end of the assistant's previous reply, attached only to short or steering messages
 TEXT_CHARS = 420
 MAX_SKILLS = 5
 VERSION = 2
@@ -38,6 +43,9 @@ SYSTEM = (
 EMAIL = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 URL = re.compile(r"https?://\S+")
 LONG_NUMBER = re.compile(r"(?<!\w)\+?\d(?:[ .()-]*\d){7,}(?!\w)")
+FIELDS_NOTE = ("Each message has an id, a chat, a day label (messages with the same day label were sent on the same "
+               "day, in order) and sometimes ai: the end of what the assistant said just before it, so you can see "
+               "whether the message corrects it. Only the user's messages are evidence; ai is context.\n")
 SCOPE = ("Scope: how the assistant should work with this person (their ways of working and judging), "
          "not personal topics, one-off projects or facts about their life.\n")
 CARD_SPEC = f"""Return up to {MAX_SKILLS} reusable items ordered best first. Each item has
@@ -89,6 +97,34 @@ def load_turns(args):
     return read_claude(args.claude_logs)
 
 
+def choose_days(days, n_days, rng):
+    """days: {date: {"kept": [...], "total": int}}. Prefer busy days, one per week, skipping personal days."""
+    def personal(info):
+        return (info["total"] - len(info["kept"])) / info["total"] > PERSONAL_DAY_SHARE
+    tiers = [
+        ("", [d for d, i in days.items() if len(i["kept"]) >= MIN_DAY_MESSAGES and not personal(i)]),
+        ("Few days had enough messages, so smaller days were used. ",
+         [d for d, i in days.items() if i["kept"] and not personal(i)]),
+        ("Most days mostly touched sensitive topics; days were used anyway (each message was still filtered). ",
+         [d for d, i in days.items() if i["kept"]]),
+    ]
+    for note, eligible in tiers:
+        if eligible:
+            break
+    else:
+        return [], ""
+    by_week = {}
+    for d in eligible:
+        by_week.setdefault(d.isocalendar()[:2], []).append(d)
+    best = [max(ds, key=lambda d: (len(days[d]["kept"]), rng.random())) for ds in by_week.values()]
+    best.sort(key=lambda d: -len(days[d]["kept"]))
+    chosen = best[:n_days]
+    if len(chosen) < n_days:
+        rest = sorted((d for d in eligible if d not in chosen), key=lambda d: (-len(days[d]["kept"]), rng.random()))
+        chosen += rest[:n_days - len(chosen)]
+    return sorted(chosen), note
+
+
 def prepare(args):
     if args.output.exists():
         raise ValueError("Choose a new output path. Your existing review file was preserved.")
@@ -98,50 +134,73 @@ def prepare(args):
         text = " ".join(own_words(turn.text).split())
         if turn.ts is None or turn.kind == "interrupt" or not text:
             continue
-        text = LONG_NUMBER.sub("[NUMBER]", EMAIL.sub("[EMAIL]", URL.sub("[URL]", text)))
+        text = mask(text)
         timestamp = turn.ts.astimezone(timezone.utc)
+        prev = mask(" ".join((getattr(turn, "prev", "") or "").split()))[-MAX_AI_CHARS:]
         # Resumed or forked sessions log the same message again under another session id. Same minute and
         # same text counts once, otherwise one message would look like evidence from two chats.
         candidates.setdefault((timestamp.replace(second=0, microsecond=0), text), (
-            timestamp, (turn.source, turn.session), text[:TEXT_CHARS]))
+            timestamp, (turn.source, turn.session), text[:TEXT_CHARS], prev))
     if not candidates:
         raise ValueError("No dated user messages found. Check your export or Claude Code folder.")
     ordered = sorted(candidates.values())
     latest = ordered[-1][0]
     end = latest - timedelta(days=getattr(args, "exclude_recent_days", 0))
     cutoff = end - timedelta(days=args.days)
-    # Random sample inside the window (not newest first), so a longer window spreads over more chats and weeks.
-    window = [item for item in ordered if cutoff <= item[0] <= end]
     custom = load_blocklist(getattr(args, "block", None))
     dropped = Counter()
-    kept_window = []
-    for item in window:
+    days = {}
+    for item in ordered:
+        if not cutoff <= item[0] <= end:
+            continue
+        info = days.setdefault(item[0].astimezone().date(), {"kept": [], "total": 0})
+        info["total"] += 1
         reason = sensitive_reason(item[2], custom)
         if reason:
             dropped[reason] += 1
         else:
-            kept_window.append(item)
-    window = kept_window
-    random.Random(latest.isoformat()).shuffle(window)
-    selected = []
-    per_chat = Counter()
-    for timestamp, chat, text in window:
-        if len(selected) == args.max_messages:
-            break
-        if per_chat[chat] < MAX_PER_CHAT:
-            selected.append((timestamp, chat, text))
-            per_chat[chat] += 1
-    if not selected:
-        raise ValueError("No messages in that window. Widen --days or reduce --exclude-recent-days.")
-    selected.sort()
+            info["kept"].append(item)
+    rng = random.Random(latest.isoformat())
+    n_days = getattr(args, "n_days", N_DAYS)
+    if getattr(args, "dates", None):
+        wanted = [datetime.strptime(d.strip(), "%Y-%m-%d").date() for d in args.dates.split(",") if d.strip()]
+        chosen, note = [d for d in sorted(set(wanted)) if d in days and days[d]["kept"]], ""
+        if not chosen:
+            raise ValueError("None of those dates has usable messages in the window. Check --dates, --days and "
+                             "--exclude-recent-days.")
+    else:
+        chosen, note = choose_days(days, n_days, rng)
+    if not chosen:
+        raise ValueError("No usable messages in that window. Widen --days or reduce --exclude-recent-days.")
+    per_day = max(1, -(-args.max_messages // len(chosen)))
+    selected, tails = [], 0
     chats = {}
+    for day_no, day in enumerate(chosen, start=1):
+        items = days[day]["kept"]
+        priority = [i for i in items if is_steering(i[2])]
+        take = priority[:per_day]
+        if len(take) < per_day:
+            others = [i for i in items if i not in take]
+            take += rng.sample(others, min(per_day - len(take), len(others)))
+        per_chat = Counter()
+        for item in sorted(take):
+            if per_chat[item[1]] < MAX_PER_CHAT:
+                per_chat[item[1]] += 1
+                selected.append((day_no, item))
     rows = []
-    for _, chat, text in selected:
-        chat_id = chats.setdefault(chat, f"c{len(chats) + 1}")
-        rows.append({"id": f"m{len(rows) + 1}", "chat": chat_id, "text": text})
+    for day_no, (timestamp, chat, text, prev) in selected:
+        row = {"id": f"m{len(rows) + 1}", "chat": chats.setdefault(chat, f"c{len(chats) + 1}"),
+               "day": f"d{day_no}", "text": text}
+        if prev and is_steering(text) and not sensitive_reason(prev, custom):
+            row["ai"] = prev
+            tails += 1
+        rows.append(row)
     save_json(args.output, rows)
     low, high = (len(rows) * k // 1000 for k in TOKENS_PER_MESSAGE)
-    print(f"Prepared {len(rows)} messages from {len(chats)} chats.")
+    print(f"Prepared {len(rows)} messages from {len(chats)} chats on {len(chosen)} days "
+          f"({', '.join(d.isoformat() for d in chosen)}). {note}".rstrip())
+    print(f"{tails} short or correcting messages carry the end (up to {MAX_AI_CHARS} characters) of the assistant's "
+          "previous reply, so a correction can be understood; no other assistant text is read.")
     print("Automatic filter (counts only): masked links, paths, emails and long numbers; dropped "
           + (", ".join(f"{n} {name}" for name, n in sorted(dropped.items())) if dropped else "0")
           + " messages on sensitive topics. Names and other details are not detected.")
@@ -153,9 +212,9 @@ def prepare(args):
               "(prepare again with --review to require that).")
     print(f"Generation will use roughly {low}k to {high}k tokens of your Claude allowance (a rough estimate; "
           f"check /usage before and after). Recommended sample: about {RECOMMENDED_TURNS} messages.")
-    if len(rows) > RECOMMENDED_TURNS:
+    if len(rows) > RECOMMENDED_TURNS + len(chosen):
         print(f"Note: {len(rows)} is more than the recommended {RECOMMENDED_TURNS}. It works, but costs more "
-              "and adds little; delete messages in the review file or use --max-messages to reduce it.")
+              "and adds little; use --max-messages to reduce it.")
 
 
 def load_history(path):
@@ -165,11 +224,13 @@ def load_history(path):
     ids = set()
     counts = Counter()
     for row in rows:
-        if not isinstance(row, dict) or set(row) != {"id", "chat", "text"}:
-            raise ValueError("Each message needs exactly id, chat, and text.")
+        if not isinstance(row, dict) or not {"id", "chat", "text"} <= set(row) <= {"id", "chat", "text", "day", "ai"}:
+            raise ValueError("Each message needs id, chat and text (and may have day and ai).")
         if not (isinstance(row["id"], str) and re.fullmatch(r"m[1-9][0-9]*", row["id"])
                 and isinstance(row["chat"], str) and re.fullmatch(r"c[1-9][0-9]*", row["chat"])
-                and isinstance(row["text"], str) and 0 < len(row["text"].strip()) <= TEXT_CHARS):
+                and isinstance(row["text"], str) and 0 < len(row["text"].strip()) <= TEXT_CHARS
+                and (row.get("day") is None or re.fullmatch(r"d[1-9][0-9]*", str(row["day"])))
+                and (row.get("ai") is None or (isinstance(row["ai"], str) and len(row["ai"]) <= MAX_AI_CHARS))):
             raise ValueError("Keep the generated ID format and use 1–420 characters per message.")
         if row["id"] in ids:
             raise ValueError("Message IDs must be unique.")
@@ -304,11 +365,11 @@ def generate(args):
             save_json(state_path, state)
         return state["steps"][name]
 
-    direct = stage("direct", SCOPE + DIRECT + CARD_SPEC + "\nHistory:\n" + payload,
+    direct = stage("direct", SCOPE + FIELDS_NOTE + DIRECT + CARD_SPEC + "\nHistory:\n" + payload,
                    lambda items: validate_cards(items, history, {r["id"] for r in history}))
-    observations = stage("observations", SCOPE + OBSERVATIONS + "\nHistory:\n" + payload,
+    observations = stage("observations", SCOPE + FIELDS_NOTE + OBSERVATIONS + "\nHistory:\n" + payload,
                          lambda items: validate_observations(items, history))
-    structured = stage("structured", SCOPE + STRUCTURED + CARD_SPEC + "\nHistory:\n" + payload
+    structured = stage("structured", SCOPE + FIELDS_NOTE + STRUCTURED + CARD_SPEC + "\nHistory:\n" + payload
                        + "\nObservations:\n" + json.dumps(observations, ensure_ascii=False),
                        lambda items: validate_cards(items, history, {r["id"] for r in observations}))
     cards_path = args.folder / "cards.local.json"
@@ -550,6 +611,20 @@ def sensitive_reason(text, custom=None):
         if rule.search(text):
             return name
     return "custom" if custom and custom.search(text) else None
+
+
+STEERING = re.compile(
+    r"\b(shorter|longer|again|not what i|i said|instead|stop|rewrite|redo|simpler|too (long|short|much|vague)|"
+    r"why did you|actually|wrong|incorrect|don'?t|do not|never|always|rather)\b"
+    r"|不是|不要|别|重新|再|太长|太短|简单|我说的是|为什么|zu lang|zu kurz|nochmal|nicht so|stattdessen|immer|nie ", re.I)
+
+
+def is_steering(text):
+    return len(text) <= SHORT_CHARS or bool(STEERING.search(text))
+
+
+def mask(text):
+    return LONG_NUMBER.sub("[NUMBER]", EMAIL.sub("[EMAIL]", URL.sub("[URL]", text)))
 
 
 FILE_REFS = re.compile(r"\.(md|py|json|csv|pdf|js|ts|ipynb)\b|\[URL\]|\brun\b|\bscript\b|\brepo\b|\bfile\b|@\S", re.I)
@@ -813,10 +888,12 @@ def main():
     prep.add_argument("--days", type=int, default=30,
                       help="length of the window the messages are sampled from, ending where the test window starts (default 30)")
     prep.add_argument("--max-messages", type=int, default=RECOMMENDED_TURNS,
-                      help=f"messages to select (default {RECOMMENDED_TURNS}, recommended; ceiling {MAX_TURNS})")
+                      help=f"messages in total across the days (default {RECOMMENDED_TURNS}, recommended; ceiling {MAX_TURNS})")
     prep.add_argument("--exclude-recent-days", type=int, default=14,
                       help="hold out the most recent N days as the test window for the answer comparison (default 14)")
     prep.add_argument("--output", type=Path, default=Path("history.review.json"))
+    prep.add_argument("--n-days", type=int, default=N_DAYS, help=f"days to read in full (default {N_DAYS})")
+    prep.add_argument("--dates", help="choose the days yourself, e.g. 2026-11-03,2026-11-10")
     prep.add_argument("--review", action="store_true", help="require reading the selected messages before generate")
     prep.add_argument("--block", type=Path, help="text file with extra words to drop, one per line")
     prep.set_defaults(handler=prepare)
