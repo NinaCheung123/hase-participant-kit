@@ -56,7 +56,7 @@ class StudyFlow(unittest.TestCase):
         self.assertEqual(set(decisions[0]), set(study.FIELDS))
         text = (self.folder / "decisions.share.csv").read_text()
         self.assertNotIn("Edited", text)  # no card text in the shared file
-        with feed("x", "closer to me"):
+        with feed("x", "closer to me", ""):
             run(study.choose, folder=self.folder)
         choice = rows(self.folder / "choice.share.csv")[0]
         self.assertIn(choice["chosen_method"], ("direct", "structured"))
@@ -166,8 +166,8 @@ class AnswerStage(unittest.TestCase):
             run(study.confirm, folder=self.folder)
 
     def make_tasks(self, turns, **kw):
-        args = dict(output=self.dir / "t.json", days=14, hase=False, control=False, no_replay=False,
-                    export=None, cursor_logs=None, codex_logs=None, claude_logs=1)
+        args = dict(output=self.dir / "t.json", days=14, no_cohort_task=False, control=False, no_replay=False,
+                    no_own=True, export=None, cursor_logs=None, codex_logs=None, claude_logs=1)
         args.update(kw)
         with mock.patch.object(study, "load_turns", lambda a: turns):
             out = run(study.tasks, **args)
@@ -183,22 +183,62 @@ class AnswerStage(unittest.TestCase):
         link = "Explain the trade-offs between two vendors for a manager, using the page at https://x.io/a for the facts"
         sensitive = "Help me write a polite message to my landlord about the lease and the rent increase next month"
         rows_, _ = self.make_tasks([T(1, good), T(2, needs_file), T(3, link), T(4, "short"), T(5, sensitive)])
-        self.assertEqual([r["task_id"] for r in rows_], ["T1", "T2", "T3", "R1"])
-        self.assertTrue(all(r["rubric"] for r in rows_[:3]))
-        replay = rows_[3]
+        self.assertEqual([r["task_id"] for r in rows_], ["T1", "T2", "T3", "T4", "R1"])
+        self.assertTrue(all(r["rubric"] for r in rows_[:4]))
+        replay = rows_[4]
         self.assertEqual(replay["kind"], "replay")
         self.assertIn("[EMAIL]", replay["opening_prompt"])
         self.assertNotIn("635", replay["opening_prompt"])
 
     def test_tasks_options_and_fallbacks(self):
-        rows_, out = self.make_tasks([], hase=True, control=True, output=self.dir / "a.json")
+        rows_, out = self.make_tasks([], control=True, output=self.dir / "a.json")
         self.assertEqual([r["task_id"] for r in rows_], ["T1", "T2", "T3", "T4", "C1"])
         self.assertIn("only the common tasks", out)
         rows_, out = self.make_tasks([], no_replay=True, output=self.dir / "b.json")
-        self.assertEqual(len(rows_), 3)
+        self.assertEqual(len(rows_), 4)
+        rows_, out = self.make_tasks([], no_replay=True, no_cohort_task=True, output=self.dir / "b2.json")
+        self.assertEqual([r["task_id"] for r in rows_], ["T1", "T2", "T3"])
         rows_, out = self.make_tasks([], claude_logs=None, output=self.dir / "c.json")
-        self.assertEqual(len(rows_), 3)
+        self.assertEqual(len(rows_), 4)
         self.assertIn("replay tasks are skipped", out)
+
+    def test_tasks_never_waits_for_input_and_lists_the_tasks(self):
+        with mock.patch("builtins.input", side_effect=AssertionError("tasks must not read input")):
+            rows_, out = self.make_tasks([], no_replay=True, output=self.dir / "n.json")
+        self.assertEqual(len(rows_), 4)
+        self.assertIn("T1  Below are rough notes", out)
+        self.assertIn("python3 study.py ask", out)
+        self.assertIn("Next: python3 study.py generate", out)
+
+    def test_ask_adds_one_masked_own_task_last_and_can_be_cancelled(self):
+        rows_, _ = self.make_tasks([], no_replay=True, output=self.dir / "a1.json")
+        path = self.dir / "a1.json"
+        with feed("Plan my week, see https://x.io/a today"):
+            out = run(study.ask, tasks=path)
+        rows_ = json.loads(path.read_text())
+        self.assertEqual([r["task_id"] for r in rows_], ["T1", "T2", "T3", "T4", "O1"])
+        self.assertEqual(rows_[-1]["kind"], "own")
+        self.assertIn("[URL]", rows_[-1]["opening_prompt"])
+        with feed("A different question"):                      # asking again replaces O1 instead of adding a second
+            run(study.ask, tasks=path)
+        rows_ = json.loads(path.read_text())
+        self.assertEqual([r["task_id"] for r in rows_].count("O1"), 1)
+        self.assertEqual(rows_[-1]["opening_prompt"], "A different question")
+        with feed(""):                                           # Enter = cancel, nothing changes
+            out = run(study.ask, tasks=path)
+        self.assertIn("unchanged", out)
+        self.assertEqual(len(json.loads(path.read_text())), 5)
+        with self.assertRaises(ValueError):
+            run(study.ask, tasks=self.dir / "missing.json")
+
+    def test_prepare_prints_full_path_and_clear_sample_line(self):
+        turns = [Turn(i) for i in range(30)]
+        with mock.patch.object(study, "load_turns", lambda a: turns):
+            out = run(study.prepare, output=self.dir / "p.json", max_messages=48, days=7, exclude_recent_days=0)
+        self.assertIn(str((self.dir / "p.json").resolve()), out)
+        self.assertIn("you do not need to enter anything", out)
+        self.assertNotIn("Recommended sample", out)
+        self.assertIn("Next: python3 study.py tasks", out)
 
     def test_replay_is_capped(self):
         class T(Turn):
@@ -219,43 +259,44 @@ class AnswerStage(unittest.TestCase):
         data = json.loads((self.folder / "eval_answers.local.json").read_text())
         self.assertEqual(set(data[0]["answers"]), {"A", "B", "C"})
         self.assertTrue(data[0]["rubric"])
-        inputs = ["short", "conclusion first", "",   # T1 checklist (written before any answer is shown)
-                  "", "",                              # T2, T3: no checklist
-                  "x", "y", "none", "clear",           # T1: best X, worst Y, nothing fails, reason
-                  "tie", "none", "",                   # T2: cannot tell
-                  "skip",                              # T3: not a fair test
-                  "xz", "none"]                        # T1 checklist afterwards: which answers meet each item
-        with feed(*inputs):
+        inputs = ["x", "y", "clear", "why",                  # T1: best X, worst Y, clarity, reason
+                  "tie", "cannot tell",                       # T2: cannot tell, why
+                  "skip", "needs a file"]                     # T3: not a fair test, what is wrong with the question
+        with feed(*inputs):                            # no checklist prompts by default
             run(study.compare, folder=self.folder)
         r = rows(self.folder / "compare.share.csv")
         self.assertEqual([x["result"] for x in r], ["", "tie", "skip"])
         self.assertEqual(r[0]["kind"], "common")
         self.assertIn(r[0]["best_condition"], ("none", "direct", "structured"))
         self.assertNotEqual(r[0]["best_condition"], r[0]["worst_condition"])
-        self.assertEqual(r[0]["checklist_items"], "2")
-        self.assertIn(r[0]["best_meets"], ("0", "1"))
+        self.assertNotIn("checklist_items", r[0])
+        self.assertNotIn("below_threshold", r[0])
+        self.assertEqual((r[0]["clarity"], r[0]["reason"], r[0]["question_note"]), ("clear", "why", ""))
+        self.assertEqual((r[1]["reason"], r[1]["clarity"]), ("cannot tell", ""))
+        self.assertEqual(r[2]["question_note"], "needs a file")
+        self.assertEqual(r[0]["sim_none_direct"], "1.0")                 # demo answers are identical
         key = json.loads((self.folder / "key.share.json").read_text())
         self.assertEqual(r[0]["participant"], key["participant"])
         text = (self.folder / "compare.share.csv").read_text()
         self.assertNotIn("demo answer", text)
-        self.assertNotIn("conclusion first", text)     # checklist wording stays local; only counts are shared
         with feed("y", "closer"):                       # choose needs confirm first
             with self.assertRaises(ValueError):
                 run(study.choose, folder=self.folder)
         self.confirm_all("k", "d", "k")
-        with feed("y", "closer"):
+        with feed("y", "closer", "step 3 was unclear"):
             run(study.choose, folder=self.folder)
         self.assertTrue((self.folder / "choice.share.csv").exists())
+        self.assertEqual(rows(self.folder / "choice.share.csv")[0]["comments"], "step 3 was unclear")
         self.assertEqual(rows(self.folder / "decisions.share.csv")[0]["participant"], key["participant"])
 
     def test_bundle_contains_only_share_files(self):
-        with feed("", "", "", "x", "y", "none", "ok", "skip", "skip"):  # skip checklists; task 1 ranked, 2 and 3 skipped
+        with feed("x", "y", "clear", "ok", "", "skip", "", "skip", ""):   # task 1 ranked, 2 and 3 skipped
             run(study.answers, folder=self.folder, tasks=self.tasks, n=6, model=None, demo=True)
             run(study.compare, folder=self.folder)
         with self.assertRaises(ValueError):       # decisions and choice are still missing
             run(study.bundle, folder=self.folder)
         self.confirm_all("k", "d", "k")
-        with feed("x", "fine"):
+        with feed("x", "fine", ""):
             run(study.choose, folder=self.folder)
         run(study.bundle, folder=self.folder)
         import zipfile
@@ -263,14 +304,46 @@ class AnswerStage(unittest.TestCase):
         self.assertEqual(names, sorted(study.SHARE_FILES))
         self.assertFalse(any(".local" in n for n in names))
 
-    def test_checklist_never_changes_the_ranking(self):
+    def test_optional_checklist_never_changes_the_ranking(self):
         run(study.answers, folder=self.folder, tasks=self.tasks, n=1, model=None, demo=True)
-        with feed("one", "", "x", "y", "z", "ok", "none"):      # checklist, X best, Y worst, Z fails, reason, "none meet"
-            run(study.compare, folder=self.folder)
+        with feed("one", "", "x", "y", "slight", "ok", "", "none"):   # checklist; X best, Y worst, clarity, reason, note; "none meet"
+            run(study.compare, folder=self.folder, checklist=True)
         r = rows(self.folder / "compare.share.csv")[0]
         self.assertEqual(r["best_meets"], "0")                  # the winner met no checklist item; ranking unchanged
         self.assertNotEqual(r["best_condition"], "")
-        self.assertEqual(len(r["below_threshold"].split(";")), 1)
+        self.assertEqual(r["clarity"], "slight")
+
+    def test_each_step_explains_what_is_happening(self):
+        out = run(study.answers, folder=self.folder, tasks=self.tasks, n=6, model=None, demo=True)
+        self.assertIn("You do not answer anything in this step and no question is shown yet", out)
+        with feed("x", "y", "clear", "", "", "tie", "", "skip", ""):
+            out = run(study.compare, folder=self.folder)
+        # the compare intro is printed before the first task is shown
+        self.assertIn("one at a time", out)
+        self.assertIn("Nothing is graded", out)
+        with feed("k", "k", "k", ""):
+            out = run(study.confirm, folder=self.folder)
+        self.assertIn("for the first time", out)
+        with feed("x", "ok", ""):
+            out = run(study.choose, folder=self.folder)
+        self.assertIn("without saying which is which", out)
+
+    def test_similarity_is_word_overlap(self):
+        self.assertEqual(study.similarity("a b c", "a b c"), 1.0)
+        self.assertEqual(study.similarity("a b c", "a b d"), 0.5)
+        self.assertEqual(study.similarity("", ""), 1.0)
+
+    def test_harness_text_is_not_used(self):
+        for text in ("Side conversation boundary. Parent chat: x", "<turn_aborted> The user interrupted", "# Files mentioned by the user: a.png"):
+            self.assertTrue(study.HARNESS_TEXT.search(text))
+        self.assertFalse(study.HARNESS_TEXT.search("can you find me the files"))
+
+    def test_word_limits_kept_except_t4(self):
+        texts = {x["task_id"]: x["opening_prompt"] for x in study.COMMON_TASKS + [study.COHORT_TASK]}
+        self.assertIn("At most 180 words", texts["T1"])
+        self.assertIn("at most 200 words", texts["T3"])
+        self.assertNotIn("words", texts["T4"])
+        self.assertIn("At most 150 words", texts["T2"])
 
     def test_method_with_no_items_drops_that_condition(self):
         kp = self.folder / "key.share.json"
@@ -282,7 +355,7 @@ class AnswerStage(unittest.TestCase):
         self.assertIn("direct method returned no items", out)
         data = json.loads((self.folder / "eval_answers.local.json").read_text())
         self.assertEqual(set(data[0]["answers"]), {"A", "C"})
-        with feed("", "x", "none", "ok"):                       # no checklist; two conditions: best only, worst implied
+        with feed("x", "forced", "ok", ""):                     # two conditions: best only, worst implied
             run(study.compare, folder=self.folder)
         r = rows(self.folder / "compare.share.csv")[0]
         self.assertEqual({r["best_condition"], r["worst_condition"]}, {"none", "structured"})
@@ -295,18 +368,19 @@ class AnswerStage(unittest.TestCase):
     def test_replay_prompt_gets_word_cap_common_does_not(self):
         calls = []
         tasks = [{"task_id": "T1", "kind": "common", "opening_prompt": "common prompt"},
-                 {"task_id": "R1", "kind": "replay", "opening_prompt": "replay prompt"}]
+                 {"task_id": "R1", "kind": "replay", "opening_prompt": "replay prompt"},
+                 {"task_id": "O1", "kind": "own", "opening_prompt": "own prompt"}]
         path = self.dir / "two.json"
         path.write_text(json.dumps(tasks))
         with mock.patch.object(study, "run_claude", lambda prompt, model, system=None: calls.append(prompt) or "a"):
             run(study.answers, folder=self.folder, tasks=path, n=6, model="m", demo=False)
-        self.assertEqual(len(calls), 6)
-        self.assertEqual(sum(study.REPLAY_WORDS in c for c in calls), 3)
-        self.assertTrue(all("common prompt" in c for c in calls if "replay prompt" not in c))
+        self.assertEqual(len(calls), 9)
+        self.assertEqual(sum(study.REPLAY_WORDS in c for c in calls), 6)          # replay and own are capped
+        self.assertTrue(all(study.REPLAY_WORDS not in c for c in calls if "common prompt" in c))
 
     def test_choose_without_answers_still_works(self):
         self.confirm_all("k", "k", "k")
-        with feed("same", "no difference"):
+        with feed("same", "no difference", ""):
             run(study.choose, folder=self.folder)
         self.assertEqual(rows(self.folder / "choice.share.csv")[0]["chosen_method"], "same")
 

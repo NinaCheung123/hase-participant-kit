@@ -8,6 +8,7 @@ import os
 import random
 import re
 import subprocess
+import sys
 import tempfile
 import uuid
 import zipfile
@@ -97,6 +98,9 @@ def load_turns(args):
     return read_claude(args.claude_logs)
 
 
+HARNESS_TEXT = re.compile(r'^\s*(Side conversation boundary|<[a-z_]+>|# AGENTS|# Files mentioned|# Response annotations)|"threadId"')
+
+
 def choose_days(days, n_days, rng):
     """days: {date: {"kept": [...], "total": int}}. Prefer busy days, one per week, skipping personal days."""
     def personal(info):
@@ -132,7 +136,7 @@ def prepare(args):
     candidates = {}
     for turn in turns:
         text = " ".join(own_words(turn.text).split())
-        if turn.ts is None or turn.kind == "interrupt" or not text:
+        if turn.ts is None or turn.kind == "interrupt" or not text or HARNESS_TEXT.search(text):
             continue
         text = mask(text)
         timestamp = turn.ts.astimezone(timezone.utc)
@@ -204,17 +208,22 @@ def prepare(args):
     print("Automatic filter (counts only): masked links, paths, emails and long numbers; dropped "
           + (", ".join(f"{n} {name}" for name, n in sorted(dropped.items())) if dropped else "0")
           + " messages on sensitive topics. Names and other details are not detected.")
+    where = args.output.resolve()
     if getattr(args, "review", False):
         (args.output.parent / (args.output.name + ".needs-review")).write_text("review required\n")
-        print(f"Review {args.output} locally, then run generate with --confirm-reviewed.")
+        print(f"Read {where} in any text editor, delete anything you do not want sent, then run "
+              "generate with --confirm-reviewed.")
     else:
-        print(f"{args.output} holds what will be sent to Claude. Open it if you want to read it first "
-              "(prepare again with --review to require that).")
-    print(f"Generation will use roughly {low}k to {high}k tokens of your Claude allowance (a rough estimate; "
-          f"check /usage before and after). Recommended sample: about {RECOMMENDED_TURNS} messages.")
+        print(f"What will be sent to Claude is saved in {where}. You do not have to open it; if you want to read "
+              f"it first, open that file in any text editor (on a Mac: open \"{where}\"). Prepare again with "
+              "--review to make reading it compulsory.")
+    print(f"This run sends {len(rows)} messages (the default is about {RECOMMENDED_TURNS}; you do not need to enter "
+          f"anything) and uses roughly {low}k to {high}k tokens of your Claude allowance (a rough estimate; check "
+          "/usage before and after).")
     if len(rows) > RECOMMENDED_TURNS + len(chosen):
         print(f"Note: {len(rows)} is more than the recommended {RECOMMENDED_TURNS}. It works, but costs more "
               "and adds little; use --max-messages to reduce it.")
+    print("Next: python3 study.py tasks (with the same source option you used here)")
 
 
 def load_history(path):
@@ -357,6 +366,10 @@ def generate(args):
         raise ValueError("You asked to review the input. Read it, then add --confirm-reviewed to send it to Claude.")
     payload = json.dumps(history, ensure_ascii=False)
 
+    if not args.demo and len(state["steps"]) < 3:
+        print("Claude is now reading your selected messages and writing two sets of skills and principles in "
+              "three steps. You do not need to do anything; it takes about 2 to 5 minutes.")
+
     def stage(name, prompt, validate):
         if name not in state["steps"]:
             print(f"Running generation step {len(state['steps']) + 1} of 3…", flush=True)
@@ -391,7 +404,7 @@ def generate(args):
             "sets": dict(zip("XY", random.SystemRandom().sample(("direct", "structured"), 2))),
             "cards": mapping})
         save_json(cards_path, blinded)
-    print(f"Prepared {len(read_json(cards_path))} cards. Next, run the confirm command.")
+    print(f"Prepared {len(read_json(cards_path))} cards. Next: python3 study.py answers")
 
 
 def answer(prompt, choices):
@@ -424,6 +437,10 @@ def confirm(args):
     state_path = folder / "decisions.local.json"
     state = (read_json(state_path) if state_path.exists()
              else {"participant": read_json(folder / "key.share.json")["participant"], "decisions": {}, "added": []})
+    if any(c["card_id"] not in state["decisions"] for c in cards):
+        print("Now you see, for the first time, the skills and principles Claude wrote from your messages. "
+              "These were the guidance behind the answers you just compared. Keep each one that is really you "
+              "and delete the rest (type e to edit one first).")
     for i, card in enumerate(cards, start=1):
         card_id = card["card_id"]
         if card_id in state["decisions"]:
@@ -437,16 +454,21 @@ def confirm(args):
         state["decisions"][card_id] = entry
         save_json(state_path, state)
     if not state.get("added_done"):
-        print("\nAdd skills or principles the tool missed (leave the title empty to finish).")
+        print("\nOptional: add a skill or principle you wish the tool had found. Press Enter at 'Title' to finish.")
         while True:
-            title = input("Title: ").strip()
+            title = input("Title" + (" of another one" if state["added"] else "") + " (Enter to finish): ").strip()
             if not title:
                 break
             card_type = answer("skill or principle? [s/p] ", {"s", "p"})
+            when = input("When it applies: ").strip()
+            instruction = input("What to do: ").strip()
+            if not (when or instruction):
+                print("Nothing written for it, so it was not added.")
+                continue
             state["added"].append({"title": title, "type": "skill" if card_type == "s" else "principle",
-                                   "when": input("When it applies: ").strip(),
-                                   "instruction": input("What to do: ").strip()})
+                                   "when": when, "instruction": instruction})
             save_json(state_path, state)
+            print(f"Added ({len(state['added'])} so far).")
         state["added_done"] = True
         save_json(state_path, state)
     path = folder / "decisions.share.csv"
@@ -462,7 +484,9 @@ def confirm(args):
         for n, item in enumerate(state["added"], start=1):
             writer.writerow({"participant": state["participant"], "card_id": f"added{n}", "decision": "add",
                              "type": item["type"], "kind": "", "chats": ""})
-    print(f"\nReview {path}. Next: python3 study.py choose")
+    print("\nReview your decisions before you send them (delete any row you prefer not to share).")
+    show_file(path)
+    print("Next: python3 study.py choose")
 
 
 def choose(args):
@@ -477,6 +501,11 @@ def choose(args):
     if "choice" not in state:
         cards = {c["card_id"]: c for c in read_cards(folder)}
         key = read_json(folder / "key.share.json")
+        print("These are the two sets of skills and principles Claude wrote from your messages, made by two "
+              "different methods and shown without saying which is which.\n"
+              "Imagine you keep one set as the standing instructions your AI assistant carries into all your future "
+              "work, and that it grows over time. Which set is the better starting point: the one that sounds most "
+              "like you, is most useful, and is worth building on? Your answer helps us compare the two methods.")
         for letter in "XY":
             print(f"\n=== Set {letter} ===")
             for c in key["cards"]:
@@ -484,20 +513,24 @@ def choose(args):
                     card = cards[c["card_id"]]
                     status = state["decisions"].get(c["card_id"], {}).get("decision", "")
                     print(f"- [{card['type']}] {card['title']}: {card['instruction']}  ({status})")
-        pick = answer("\nWhich set would you take into your next task? [x/y/same/neither] ",
+        pick = answer("\nWhich set is the better one to keep and build on? [x/y/same/neither] (same = no real difference, neither = I would not keep either) ",
                       {"x", "y", "same", "neither"})
-        reason = input("One-line reason: ").strip()
-        state["choice"] = {"pick": pick, "reason": reason}
+        reason = input("One-line reason (what made it the better starting point): ").strip()
+        comments = input("Anything else about the study you want us to know, such as a confusing step, how long "
+                         "it took, or a problem? (optional, Enter to skip): ").strip()
+        state["choice"] = {"pick": pick, "reason": reason, "comments": comments}
         save_json(state_path, state)
     pick = state["choice"]["pick"]
     key = read_json(folder / "key.share.json")
     chosen = key["sets"][pick.upper()] if pick in ("x", "y") else pick
     with (folder / "choice.share.csv").open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, ("participant", "chosen_method", "reason"))
+        writer = csv.DictWriter(file, ("participant", "chosen_method", "reason", "comments"))
         writer.writeheader()
         writer.writerow({"participant": state["participant"], "chosen_method": chosen,
-                         "reason": state["choice"]["reason"]})
-    print(f"Review {folder / 'choice.share.csv'}. Next: python3 study.py export")
+                         "reason": state["choice"]["reason"], "comments": state["choice"].get("comments", "")})
+    print("Review your choice before you send it.")
+    show_file(folder / "choice.share.csv")
+    print("Next: python3 study.py export")
 
 
 def slug(text):
@@ -552,7 +585,7 @@ COMMON_TASKS = [
                "visible; invented facts (dates, owners, decisions not taken) count against; within 180 words."},
     {"task_id": "T2", "kind": "common", "opening_prompt": (
         "Review the claim below. List every statement that is wrong, unsupported, or overgeneralised, and say for "
-        "each one: is it wrong, or just not proven by what is given?\n\n"
+        "each one: is it wrong, or just not proven by what is given? At most 150 words.\n\n"
         "\"We gave our team of 4 developers an AI coding tool for one week. Afterwards, 3 of them said they felt "
         "faster, so the tool clearly makes developers about 25% more productive. This shows AI tools will improve "
         "productivity in any software team, especially for experienced developers, who benefit the most.\""),
@@ -650,6 +683,22 @@ def bundle(args):
           "Email the zip to the investigator named in your consent form.")
 
 
+def ask(args):
+    """Optional: add one question of your own as the last task (O1)."""
+    if not args.tasks.exists():
+        raise ValueError("Run tasks first; ask adds your question to that file.")
+    rows = read_json(args.tasks)
+    text = input("Type a question you would really ask an AI (Enter on an empty line to cancel):\n> ").strip()
+    if not text:
+        print("Nothing entered; the tasks are unchanged.")
+        return
+    rows = [r for r in rows if r.get("task_id") != "O1"] + [
+        {"task_id": "O1", "kind": "own", "opening_prompt": mask(" ".join(text.split()))[:800]}]
+    save_json(args.tasks, rows)
+    print(f"Added as task O1 (links, emails and long numbers are masked). {len(rows)} tasks in total.")
+    print("Next: python3 study.py generate")
+
+
 def tasks(args):
     """Write the test tasks for review: organiser-set common tasks, then up to two replay candidates.
 
@@ -659,7 +708,8 @@ def tasks(args):
     """
     if args.output.exists():
         raise ValueError("Choose a new output path. Your existing tasks file was preserved.")
-    rows = list(COMMON_TASKS) + ([COHORT_TASK] if args.hase else []) + ([CONTROL_TASK] if args.control else [])
+    rows = (list(COMMON_TASKS) + ([] if getattr(args, "no_cohort_task", False) else [COHORT_TASK])
+            + ([CONTROL_TASK] if args.control else []))
     replay = []
     if getattr(args, "no_replay", False):
         print("Replay tasks skipped (--no-replay).")
@@ -680,7 +730,7 @@ def tasks(args):
                 if turn.index == 0 and turn.ts >= cutoff:
                     text = " ".join(own_words(turn.text).split())
                     text = LONG_NUMBER.sub("[NUMBER]", EMAIL.sub("[EMAIL]", URL.sub("[URL]", text)))
-                    if 80 <= len(text) <= 800 and not FILE_REFS.search(text) and not sensitive_reason(text, custom):
+                    if 80 <= len(text) <= 800 and not HARNESS_TEXT.search(text) and not FILE_REFS.search(text) and not sensitive_reason(text, custom):
                         openings[(turn.source, turn.session)] = {
                             "kind": "replay", "date": turn.ts.date().isoformat(), "opening_prompt": text}
             pool = sorted(openings.values(), key=lambda r: (r["date"], r["opening_prompt"]))
@@ -690,14 +740,25 @@ def tasks(args):
         if not replay:
             print("No suitable recent chats found, so only the common tasks are used (this is fine).")
     save_json(args.output, rows + replay)
-    print(f"Wrote {len(rows)} common and {len(replay)} replay tasks to {args.output}. Delete any replay task you "
-          "would not want sent to Claude or cannot judge. Common tasks are set by the organiser; leave them as they are.")
+    print(f"Wrote {len(rows)} common and {len(replay)} replay tasks to {args.output.resolve()}:")
+    for task in rows + replay:
+        print(f"  {task['task_id']}  {' '.join(task['opening_prompt'].split())[:70]}...")
+    print("Common tasks are set by the organiser; leave them as they are. Open the file and delete any replay "
+          "task you would not want sent to Claude or cannot judge.")
+    print("Optional: python3 study.py ask     (type a question of your own; it is added as the last task)")
+    print("Next: python3 study.py generate")
 
 
 CONDITIONS = ("A", "B", "C")
 CONDITION_NAMES = {"A": "none", "B": "direct", "C": "structured"}
 ANSWER_SYSTEM = "You are a careful assistant. Answer the task directly in text. Respect any limit stated in the task."
 ANSWER_TOKENS = (700, 1200)   # rough estimate per answer call, check /usage
+
+
+def similarity(a, b):
+    """Share of distinct words two answers have in common (1 = same words). Shows whether skills changed an answer."""
+    ta, tb = set(re.findall(r"\w+", a.lower())), set(re.findall(r"\w+", b.lower()))
+    return round(len(ta & tb) / len(ta | tb), 2) if ta | tb else 1.0
 
 
 def skills_text(items):
@@ -734,6 +795,10 @@ def answers(args):
     if len(conditions) < 2:
         raise ValueError("Neither method returned any items; there is nothing to compare with no skills.")
     low, high = (len(tasks_) * len(conditions) * k // 1000 for k in ANSWER_TOKENS)
+    print("Claude is now answering each task three ways: with no skills, with the first method's items, and "
+          "with the second method's items, so that you can compare the answers next. You do not answer "
+          "anything in this step and no question is shown yet; it takes about 2 to 5 minutes. Progress is "
+          "shown below.")
     print(f"{len(tasks_)} tasks x {len(conditions)} conditions = {len(tasks_) * len(conditions)} Claude calls, "
           f"roughly {low}k to {high}k tokens (a rough estimate; check /usage).")
     path = folder / "eval_answers.local.json"
@@ -745,8 +810,11 @@ def answers(args):
                                  "rubric": task.get("rubric", ""), "answers": {
             letter: ("(demo answer)" if args.demo else run_claude(
                 prefix + "Task:\n" + task["opening_prompt"]
-                + (f"\n\n{REPLAY_WORDS}" if task.get("kind") == "replay" else ""), args.model, ANSWER_SYSTEM))
+                + (f"\n\n{REPLAY_WORDS}" if task.get("kind") in ("replay", "own") else ""), args.model, ANSWER_SYSTEM))
             for letter, prefix in conditions.items()}}
+        outs = done[task["task_id"]]["answers"]
+        done[task["task_id"]]["similarity"] = {f"{x}:{y}": similarity(outs[x], outs[y])
+                                               for x, y in (("A", "B"), ("A", "C"), ("B", "C")) if x in outs and y in outs}
         save_json(path, list(done.values()))
         print(f"answered task {task['task_id']}")
     print("Next: python3 study.py compare   (you judge the answers blind, before seeing which used which skills)")
@@ -786,9 +854,12 @@ def compare(args):
             rng.shuffle(order)
             state["order"][tid] = order  # presentation slot X,Y,Z -> condition
     save_json(state_path, state)
-    # Personal checklist: written before any answer is shown. It explains the ranking afterwards; it never changes it.
+    # Optional personal checklist (compare --checklist, off by default): written before any answer is shown, it
+    # explains the ranking afterwards and never changes it. It is not part of the core study.
+    use_checklist = getattr(args, "checklist", False)
     state.setdefault("checklist", {})
-    pending = [t for t in tasks if t["task_id"] not in state["checklist"] and t["task_id"] not in state["stage1"]]
+    pending = [t for t in tasks if t["task_id"] not in state["checklist"] and t["task_id"] not in state["stage1"]
+               ] if use_checklist else []
     if pending:
         print("Before you see any answer, think about what a good answer to each task must do for you.\n"
               "Type up to 3 short points, one per line, and press Enter after each. When you have no more points\n"
@@ -804,6 +875,11 @@ def compare(args):
             items.append(item)
         state["checklist"][task["task_id"]] = items
         save_json(state_path, state)
+    if any(t["task_id"] not in state["stage1"] for t in tasks):
+        print(f"You will see {sum(t['task_id'] not in state['stage1'] for t in tasks)} tasks, one at a time, each "
+              "with its answers in random order (X, Y, Z). They all answer the same task; the labels do not say "
+              "how each was written. Pick the answer you would most like to receive, and the one you would "
+              "least like. Say tie if you cannot tell, or skip if the task is not a fair test. Nothing is graded.")
     for task in tasks:
         tid = task["task_id"]
         if tid in state["stage1"]:
@@ -811,14 +887,12 @@ def compare(args):
         order = state["order"][tid]
         labels = "XYZ"[:len(order)]
         print(f"\n=== Task {tid} ===\n{task.get('task', '(task text kept local)')}")
-        if task.get("rubric"):
-            print(f"\nCore rubric (what any good answer needs): {task['rubric']}")
         for label, cond in zip(labels, order):
             print(f"\n--- Answer {label} ---\n{task['answers'][cond]}")
         letters = "/".join(labels)
         low = {x.lower() for x in labels}
         best = answer(f"Best answer? [{letters}/tie/skip] (tie = cannot tell; skip = not a fair test) ", low | {"tie", "skip"})
-        result, worst, reason, below = "", "", "", []
+        result, worst, reason, note, clarity = "", "", "", "", ""
         if best in ("tie", "skip"):
             result, best = best, ""
         else:
@@ -828,13 +902,18 @@ def compare(args):
                 worst = answer(f"Worst answer? [{letters}] ", low)
                 if worst == best:
                     raise ValueError("Best and worst must differ. Rerun to redo this task.")
-        if result != "skip":
-            failed = answer(f"Any answer that fails the core requirement? [{letters}/none] ", low | {"none"})
-            below = [] if failed == "none" else [failed]
-            reason = input("One-sentence decisive difference (optional): ").strip()
+        if result == "skip":
+            note = input("What is wrong with this question? (optional, Enter to skip): ").strip()
+        elif result == "tie":
+            reason = input("Why can't you tell? (optional, Enter to skip): ").strip()
+        else:
+            clarity = answer("How clear was it? [clear / slight / forced] (forced = you had to pick but could "
+                             "hardly tell) ", {"clear", "slight", "forced"})
+            reason = input("Why? One line on what made the best better or the worst worse (optional, Enter to "
+                           "skip): ").strip()
         pick = lambda letter: order[labels.index(letter.upper())] if letter else ""
         state["stage1"][tid] = {"best": pick(best), "worst": pick(worst), "result": result, "reason": reason,
-                                "below": [pick(x) for x in below]}
+                                "clarity": clarity, "question_note": note}
         save_json(state_path, state)
     # Rankings are locked. Now use the checklist to explain which items separated the answers.
     state.setdefault("explained", {})
@@ -854,8 +933,10 @@ def compare(args):
         state["explained"][tid] = {"items": len(items), "met": met}
         save_json(state_path, state)
     with (folder / "compare.share.csv").open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, ("participant", "task_id", "kind", "best_condition", "worst_condition",
-                                       "result", "below_threshold", "checklist_items", "best_meets", "reason"))
+        fields = (("participant", "task_id", "kind", "best_condition", "worst_condition", "result", "clarity",
+                   "sim_none_direct", "sim_none_structured", "sim_direct_structured")
+                  + (("checklist_items", "best_meets") if use_checklist else ()) + ("reason", "question_note"))
+        writer = csv.DictWriter(file, fields)
         writer.writeheader()
         pid = read_json(folder / "key.share.json").get("participant", "")
         for task in tasks:
@@ -865,13 +946,23 @@ def compare(args):
             writer.writerow({"participant": pid, "task_id": tid, "kind": task.get("kind", ""),
                              "best_condition": CONDITION_NAMES.get(s1.get("best", ""), ""),
                              "worst_condition": CONDITION_NAMES.get(s1.get("worst", ""), ""),
-                             "result": s1.get("result", ""),
-                             "below_threshold": ";".join(CONDITION_NAMES[c] for c in s1.get("below", [])),
-                             "checklist_items": ex.get("items", ""),
-                             "best_meets": ex.get("met", {}).get(s1.get("best", ""), "") if s1.get("best") else "",
-                             "reason": s1.get("reason", "")})
-    print(f"\nReview {folder / 'compare.share.csv'}. It contains choices and reasons only, no answer text. "
-          "Next: python3 study.py choose")
+                             "result": s1.get("result", ""), "clarity": s1.get("clarity", ""),
+                             "sim_none_direct": task.get("similarity", {}).get("A:B", ""),
+                             "sim_none_structured": task.get("similarity", {}).get("A:C", ""),
+                             "sim_direct_structured": task.get("similarity", {}).get("B:C", ""),
+                             **({"checklist_items": ex.get("items", ""),
+                                 "best_meets": ex.get("met", {}).get(s1.get("best", ""), "") if s1.get("best") else ""}
+                                if use_checklist else {}),
+                             "reason": s1.get("reason", ""), "question_note": s1.get("question_note", "")})
+    print("\nReview your picks and reasons (they contain no answer text; delete any row you prefer not to share).")
+    show_file(folder / "compare.share.csv")
+    print("Next: python3 study.py confirm")
+
+
+def show_file(path):
+    """Full path (clickable in most terminals) and the command that opens it."""
+    path = Path(path).resolve()
+    print(f"  File: {path}\n  Open it: open '{path}'    (macOS; on Windows use start, on Linux xdg-open)")
 
 
 def main():
@@ -906,7 +997,9 @@ def main():
     task_cmd.add_argument("--days", type=int, default=14,
                           help="test window: replay tasks come from the most recent N days (default 14; choose your own)")
     task_cmd.add_argument("--block", type=Path, help="text file with extra words to drop, one per line")
-    task_cmd.add_argument("--hase", action="store_true", help="add the course-shared task T4 (HASE cohort only)")
+    task_cmd.add_argument("--hase", action="store_true", help=argparse.SUPPRESS)  # T4 is now on by default
+    task_cmd.add_argument("--no-cohort-task", action="store_true", help="leave out the course-shared task T4")
+    task_cmd.add_argument("--no-own", action="store_true", help=argparse.SUPPRESS)  # kept for old command lines
     task_cmd.add_argument("--control", action="store_true", help="add a control task with one right answer")
     task_cmd.add_argument("--no-replay", action="store_true", help="common tasks only")
     task_cmd.add_argument("--output", type=Path, default=Path("tasks.review.json"))
@@ -927,6 +1020,9 @@ def main():
         sub = commands.add_parser(name, help=text)
         sub.add_argument("--folder", type=Path, default=Path("my-study"))
         sub.set_defaults(handler=handler)
+    asking = commands.add_parser("ask", help="optional: add a question of your own as the last task")
+    asking.add_argument("--tasks", type=Path, default=Path("tasks.review.json"))
+    asking.set_defaults(handler=ask)
     ans = commands.add_parser("answers", help="answer the tasks with no skills / each method's items")
     ans.add_argument("--folder", type=Path, default=Path("my-study"))
     ans.add_argument("--tasks", type=Path, default=Path("tasks.review.json"))
@@ -934,6 +1030,7 @@ def main():
     ans.add_argument("--model", default="sonnet")
     ans.set_defaults(handler=answers, demo=False)
     comp = commands.add_parser("compare", help="judge the answers blind (best / worst / tie / skip)")
+    comp.add_argument("--checklist", action="store_true", help="optional: write your own points before seeing answers")
     comp.add_argument("--folder", type=Path, default=Path("my-study"))
     comp.set_defaults(handler=compare)
     args = parser.parse_args()

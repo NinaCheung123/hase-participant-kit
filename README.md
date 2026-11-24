@@ -6,7 +6,7 @@ Before starting, read the course study information and consent form provided sep
 
 ## Get the kit
 
-Download it from https://github.com/NinaCheung123/hase-participant-kit (green Code button, then Download ZIP, then unzip), or run `git clone https://github.com/NinaCheung123/hase-participant-kit.git`. Open a terminal in that folder for every command below. The source is public, so you can read exactly what it does before running it.
+Download it from https://github.com/NinaCheung123/hase-participant-kit (green Code button, then Download ZIP, then unzip), or run `git clone https://github.com/NinaCheung123/hase-participant-kit.git`. Open a terminal in that folder for every command below, and run the commands one at a time. The source is public, so you can read exactly what it does before running it.
 
 ## 1. Prepare
 
@@ -29,33 +29,36 @@ The kit reads your history on your computer and picks **about 5 days** from the 
 
 ```sh
 python3 study.py tasks --claude-logs      # same source flag as above; --days N sets the test window (default 14)
+python3 study.py ask                      # optional: type a question of your own, added as the last task
 python3 study.py generate
 ```
 
+Run the commands **one at a time** and wait for the `Next:` line each prints; do not paste several at once.
+
 `generate` calls Claude three times with your own login (a few minutes at most; rerun to resume if interrupted). Two methods write up to five items each, mixed together and unlabelled.
 
-`tasks` writes `tasks.review.json`: three common tasks set by the organisers (leave them as they are) and up to two openings of your own recent chats, picked at random and masked. Open the file and delete any of your own tasks you would not want sent to Claude or cannot judge. Without a history source, or with too little history, only the common tasks are used. HASE cohort: add `--hase` for task T4.
+`tasks` writes `tasks.review.json` and lists the tasks: four common tasks set by the organisers (leave them as they are; T4 is the course task, `--no-cohort-task` leaves it out), and up to two openings of your own recent chats, picked at random and masked. Open the file and delete any of your own tasks you would not want sent to Claude or cannot judge. Without a history source, or with too little history, only the common tasks are used. `ask` is optional: it asks for one question you would really ask an AI and adds it as the last task (task O1; run it again to replace it, press Enter on an empty line to cancel).
 
 ## 3. Answers, then compare
 
 ```sh
 python3 study.py answers     # about 2 to 5 minutes of waiting, roughly 8k to 14k tokens (estimate)
-python3 study.py compare     # write your checklist first, then judge the answers blind
+python3 study.py compare     # judge the answers blind
 ```
 
 `answers` writes each task three ways: without skills, with everything the first method generated, and with everything the second method generated. You have not seen any item yet, so the comparison stays blind.
 
-In `compare`, for each task you first type up to three short points about what a good answer must do for you, one per line (an empty line means you are done; you can leave it empty). You then see the answers in random order with no labels and pick the best and the worst, or say `tie` (cannot tell) or `skip` (not a fair test). Common tasks show a core rubric. Afterwards you mark which answers meet your checklist; this explains your ranking and never changes it. There are no numeric ratings.
+In `compare` you see, for each task, the answers in random order with no labels. Pick the best and the worst, or say `tie` (cannot tell) or `skip` (not a fair test). Then say how clear the difference was (clear, slight, or forced: you had to pick but could hardly tell), and add, if you want, one line on why (optional: press Enter to skip). There are no numeric ratings.
 
 ## 4. Look at the items, keep or delete, choose
 
 ```sh
 python3 study.py confirm     # now you see the items: keep or delete each (e = edit it first); add what was missed
-python3 study.py choose      # which of the two sets (X or Y) would you take into your next task?
+python3 study.py choose      # which of the two sets (X or Y) is the better one to keep and build on?
 python3 study.py export      # your kept items as ready-to-use files in my-study/my-skills/
 ```
 
-Keeping or deleting each item is the required part and takes a key per item. Editing and adding are optional. In `choose` you answer `x`, `y`, `same` or `neither`, with a one-line reason. `export` writes `principles.md` and `skills/*/SKILL.md`, ordinary text files you can edit later.
+Keeping or deleting each item is the required part and takes a key per item. Editing and adding are optional. In `choose` you imagine keeping one set as the standing instructions for your future work and answer `x`, `y`, `same` or `neither`, with a one-line reason and an optional comment on anything about the study that was unclear or took long. `export` writes `principles.md` and `skills/*/SKILL.md`, ordinary text files you can edit later.
 
 ## 5. Return your files
 
@@ -63,7 +66,7 @@ Keeping or deleting each item is the required part and takes a key per item. Edi
 python3 study.py bundle      # writes my-study/study_files.zip
 ```
 
-The zip holds only **`decisions.share.csv`**, **`compare.share.csv`**, **`choice.share.csv`** and **`key.share.json`**. Open each file first and delete any row you do not want to share (run `bundle` again afterwards), then email the zip to yuwen.zhang@uzh.ch. Wait until you have chosen before opening the key, which says which method made which set. The files contain a random participant code, item types, categories, conversation counts, your decisions, your best and worst picks per task, checklist counts, your set choice and your one line reasons; never the text of any item, task, answer or checklist. Keep the history, items, tasks and answers private. If you decide not to take part, you can stop and keep the files on your own computer.
+The zip holds only **`decisions.share.csv`**, **`compare.share.csv`**, **`choice.share.csv`** and **`key.share.json`**. Each step prints the path and an `open` command for its file. Open each file first and delete any row you do not want to share (run `bundle` again afterwards), then email the zip to yuwen.zhang@uzh.ch. Wait until you have chosen before opening the key, which says which method made which set. The files contain a random participant code, item types, categories, conversation counts, your decisions, your best and worst picks per task, your set choice and the short reasons you wrote; never the text of any item, task or answer. Keep the history, items, tasks and answers private. If you decide not to take part, you can stop and keep the files on your own computer.
 
 ## Optional offline walkthrough
 
