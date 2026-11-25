@@ -444,7 +444,7 @@ def generate(args):
             blinded.append({"card_id": card_id, **{k: card[k] for k in ("title", "when", "instruction", "type", "kind", "chats")}})
         save_json(args.folder / "key.share.json", {
             "protocol": VERSION, "demo": args.demo, "model": model,
-            **({"engine": engine} if not args.demo else {}),
+            **({"engine": engine} if engine == "codex" else {}),
             "turns": len(history), "chats": len({row["chat"] for row in history}),
             "participant": uuid.uuid4().hex[:12],
             "yield": {"direct": len(direct), "structured": len(structured)},
@@ -930,8 +930,8 @@ def answers(args):
         raise ValueError("The tasks file is empty or malformed. Run tasks again.")
     run_key = read_json(folder / "key.share.json")
     engine = run_key.get("engine", "claude")
-    model = run_key.get("model") if "engine" in run_key else args.model or DEFAULT_MODELS[engine]
-    if "engine" in run_key and args.model and args.model != model:
+    model = run_key["model"] if engine == "codex" else args.model or DEFAULT_MODELS["claude"]
+    if engine == "codex" and args.model and args.model != model:
         raise ValueError(f"This run was generated with {model}. Use that model for all answer conditions.")
     engine_name = ENGINE_NAMES[engine]
     items = generated_items(folder)
@@ -1185,7 +1185,7 @@ def main():
     ans.add_argument("--folder", type=Path, default=Path("my-study"))
     ans.add_argument("--tasks", type=Path, default=Path("tasks.review.json"))
     ans.add_argument("--n", type=int, default=8, help="maximum number of tasks to answer (default 8: four common, two replay, one own, one control)")
-    ans.add_argument("--model", help="model from generate (checked for newly generated runs)")
+    ans.add_argument("--model", help="override the answer model for Claude; Codex reuses the model from generate")
     ans.set_defaults(handler=answers, demo=False)
     comp = commands.add_parser("compare", help="judge the answers blind (best / worst / tie / skip)")
     comp.add_argument("--checklist", action="store_true", help="optional: write your own points before seeing answers")

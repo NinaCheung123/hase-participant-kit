@@ -8,22 +8,7 @@ You need a terminal, Python 3, and the CLI for the AI you use. With Codex histor
 
 Unzip the kit provided by the organiser. Open a terminal in the folder directly containing `study.py`, and run the commands one at a time.
 
-### Codex quick start
-
-```sh
-codex login status
-python3 study.py prepare --codex-logs
-python3 study.py tasks --codex-logs
-```
-
-Read `history.review.json` and `tasks.review.json` locally. Remove any selected messages or replay tasks you do not want to send. Keep the `engine` field and the `messages` list in the history file. Then run:
-
-```sh
-python3 study.py generate --confirm-reviewed
-python3 study.py answers
-```
-
-Both steps use your Codex login. The run records the engine and model, and all three answer conditions use that same model. The kit starts fresh, non-persistent Codex runs with shell and web access disabled. Use a current Codex CLI with `codex exec --ignore-user-config` and `--ephemeral` support. For a different model available to your Codex account, pass `--model MODEL` on the first `generate` run.
+**Using Codex?** Follow [Codex quick start](Codex_Quick_Start.txt) for local setup, sample review and generation with your own Codex login.
 
 ## 1. Prepare
 
