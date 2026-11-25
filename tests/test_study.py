@@ -1,5 +1,6 @@
 import csv, io, json, sys, tempfile, unittest
 from argparse import Namespace
+from collections import Counter
 from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -304,6 +305,19 @@ class AnswerStage(unittest.TestCase):
         self.assertEqual(names, sorted(study.SHARE_FILES))
         self.assertFalse(any(".local" in n for n in names))
 
+    def test_web_writes_session_without_opening_browser(self):
+        run(study.answers, folder=self.folder, tasks=self.tasks, n=2, model=None, demo=True)
+        out = run(study.web, folder=self.folder, no_open=True)
+        session = self.folder / "web_session.json"
+        self.assertTrue(session.exists())
+        data = json.loads(session.read_text())
+        self.assertEqual(set(data), {"answers", "cards", "key"})
+        self.assertEqual(len(data["answers"]), 2)
+        self.assertTrue(data["cards"])
+        self.assertIn("participant", data["key"])
+        self.assertIn("study-web", out)
+        self.assertIn("web_session.json", out)
+
     def test_optional_checklist_never_changes_the_ranking(self):
         run(study.answers, folder=self.folder, tasks=self.tasks, n=1, model=None, demo=True)
         with feed("one", "", "x", "y", "slight", "ok", "", "none"):   # checklist; X best, Y worst, clarity, reason, note; "none meet"
@@ -427,6 +441,21 @@ class DaySelection(unittest.TestCase):
         weeks = {datetime.strptime(d, "%Y-%m-%d").isocalendar()[1] for d in days_used}
         self.assertEqual(len(weeks), 5)             # five different weeks
         self.assertEqual([r["day"] for r in rows_], sorted(r["day"] for r in rows_))   # chronological
+
+    def test_one_long_chat_across_days_still_passes_generation_limits(self):
+        turns = []
+        for week in range(5):
+            day = week * 7 + 1
+            turns += [DayTurn(day, m, f"Plain neutral request number {m} on day {day} about the quarterly plan",
+                              "long-chat") for m in range(12)]
+            turns += [DayTurn(day, 30 + m, f"Another neutral request number {m} on day {day} about the budget plan",
+                              f"other{week}") for m in range(3)]
+        rows_, _ = self.prepare(turns)
+        self.assertLessEqual(len(rows_), 48)
+        self.assertLessEqual(max(Counter(r["chat"] for r in rows_).values()), study.MAX_PER_CHAT)
+        path = self.dir / "check.json"
+        path.write_text(json.dumps(rows_))
+        study.load_history(path)
 
     def test_personal_day_is_skipped(self):
         turns = busy_day(1, 12) + busy_day(10, 12, sensitive=8) + busy_day(20, 12)

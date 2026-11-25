@@ -176,21 +176,22 @@ def prepare(args):
         chosen, note = choose_days(days, n_days, rng)
     if not chosen:
         raise ValueError("No usable messages in that window. Widen --days or reduce --exclude-recent-days.")
-    per_day = max(1, -(-args.max_messages // len(chosen)))
+    base, extra = divmod(args.max_messages, len(chosen))
+    budgets = [max(1, base + (1 if i < extra else 0)) for i in range(len(chosen))]
     selected, tails = [], 0
     chats = {}
-    for day_no, day in enumerate(chosen, start=1):
+    per_chat = Counter()      # one count over all days, because generation limits messages per chat overall
+    for day_no, (day, per_day) in enumerate(zip(chosen, budgets), start=1):
         items = days[day]["kept"]
         priority = [i for i in items if is_steering(i[2])]
-        take = priority[:per_day]
-        if len(take) < per_day:
-            others = [i for i in items if i not in take]
-            take += rng.sample(others, min(per_day - len(take), len(others)))
-        per_chat = Counter()
-        for item in sorted(take):
-            if per_chat[item[1]] < MAX_PER_CHAT:
+        others = [i for i in items if i not in priority]
+        rng.shuffle(others)
+        take = []
+        for item in priority + others:       # steering first; a chat already at its limit gives way to other chats
+            if len(take) < per_day and per_chat[item[1]] < MAX_PER_CHAT:
                 per_chat[item[1]] += 1
-                selected.append((day_no, item))
+                take.append(item)
+        selected.extend((day_no, item) for item in sorted(take))
     rows = []
     for day_no, (timestamp, chat, text, prev) in selected:
         row = {"id": f"m{len(rows) + 1}", "chat": chats.setdefault(chat, f"c{len(chats) + 1}"),
