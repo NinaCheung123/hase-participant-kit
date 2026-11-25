@@ -50,27 +50,30 @@ class StudyFlow(unittest.TestCase):
         n = len(json.loads((self.folder / "cards.local.json").read_text()))
         self.assertEqual(n, 3)
         # keep, edit, delete; then add one principle; blank title ends adding
-        with feed("k", "e", "Edited when", "Edited do", "d", "Added", "p", "when", "do", ""):
+        with feed("k", "sounds like me", "e", "Edited when", "Edited do", "close", "d", "", "the second", "none",
+                  "Added", "p", "when", "do", ""):
             run(study.confirm, folder=self.folder)
         decisions = rows(self.folder / "decisions.share.csv")
         self.assertEqual([r["decision"] for r in decisions], ["keep", "edit", "delete", "add"])
         self.assertEqual(set(decisions[0]), set(study.FIELDS))
         text = (self.folder / "decisions.share.csv").read_text()
         self.assertNotIn("Edited", text)  # no card text in the shared file
+        self.assertEqual([r["comment"] for r in decisions], ["sounds like me", "close", "", ""])
         with feed("x", "closer to me", ""):
             run(study.choose, folder=self.folder)
         choice = rows(self.folder / "choice.share.csv")[0]
         self.assertIn(choice["chosen_method"], ("direct", "structured"))
+        self.assertEqual((choice["surprise"], choice["missing"]), ("the second", "none"))
         out = run(study.export, folder=self.folder)
         self.assertIn("principles and", out)
         self.assertTrue((self.folder / "my-skills" / "principles.md").exists())
         self.assertTrue(list((self.folder / "my-skills" / "skills").glob("*/SKILL.md")))
 
     def test_confirm_resumes_without_asking_twice(self):
-        with feed("k", "k", EOFError()):
+        with feed("k", "", "k", "", EOFError()):
             with self.assertRaises(EOFError):
                 run(study.confirm, folder=self.folder)
-        with feed("d", "", ):
+        with feed("d", "", "s", "m", ""):
             run(study.confirm, folder=self.folder)
         self.assertEqual(len(rows(self.folder / "decisions.share.csv")), 3)
 
@@ -137,14 +140,42 @@ class StudyFlow(unittest.TestCase):
         self.assertNotIn("landlord", out)             # counts only, never message text
         self.assertFalse((self.dir / "f.json.needs-review").exists())
 
-    def test_review_option_requires_confirmation_before_generate(self):
+    def test_review_shows_each_day_removes_numbers_and_gates_generate(self):
         turns = [Turn(i) for i in range(30)]
         with mock.patch.object(study, "load_turns", lambda a: turns):
-            run(study.prepare, output=self.dir / "r.json", max_messages=48, days=7, exclude_recent_days=0, review=True)
-        self.assertTrue((self.dir / "r.json.needs-review").exists())
-        with self.assertRaises(ValueError):
+            run(study.prepare, output=self.dir / "r.json", max_messages=48, days=7, exclude_recent_days=0)
+        with self.assertRaisesRegex(ValueError, "study.py review"):
             run(study.generate, demo=False, folder=self.dir / "x", history=self.dir / "r.json", model="m",
-                confirm_reviewed=False)
+                confirm_reviewed=True)
+        before = json.loads((self.dir / "r.json").read_text())
+        with feed("99", "2 5"):                                 # invalid number is re-asked; then remove 2 and 5
+            out = run(study.review, history=self.dir / "r.json", tasks=self.dir / "none.json")
+        after = json.loads((self.dir / "r.json").read_text())
+        self.assertEqual(len(after), len(before) - 2)
+        self.assertNotIn(before[1]["text"], [r["text"] for r in after if r["id"] == before[1]["id"]])
+        self.assertIn("Approved 28 of 30", out)
+        self.assertTrue(study.history_approved(self.dir / "r.json"))
+        (self.dir / "r.json").write_text(json.dumps(after[:-1]))    # editing after review needs a new review
+        self.assertFalse(study.history_approved(self.dir / "r.json"))
+
+    def test_review_refuses_to_leave_fewer_than_two_chats(self):
+        path = self.dir / "two.json"
+        path.write_text(json.dumps([{"id": "m1", "chat": "c1", "text": "a"}, {"id": "m2", "chat": "c2", "text": "b"}]))
+        with self.assertRaisesRegex(ValueError, "two chats"):
+            study.apply_history_review(path, ["m1"])
+        self.assertFalse(study.history_approved(path))
+
+    def test_review_asks_about_each_own_chat_task(self):
+        path = self.dir / "t.json"
+        path.write_text(json.dumps(study.COMMON_TASKS + [
+            {"task_id": "R1", "kind": "replay", "opening_prompt": "first own opening"},
+            {"task_id": "R2", "kind": "replay", "opening_prompt": "second own opening"}]))
+        with feed("n", "y"):
+            out = run(study.review, history=self.dir / "none.json", tasks=path)
+        ids = [r["task_id"] for r in json.loads(path.read_text())]
+        self.assertEqual(ids, ["T1", "T2", "T3", "R2"])
+        self.assertIn("removed R1", out)
+        self.assertEqual(study.unapproved_tasks(path, json.loads(path.read_text())), [])
 
     def test_history_ceiling(self):
         rows_ = [{"id": f"m{i+1}", "chat": f"c{i % 30 + 1}", "text": "x"} for i in range(study.MAX_TURNS + 1)]
@@ -163,7 +194,8 @@ class AnswerStage(unittest.TestCase):
         self.tasks.write_text(json.dumps(study.COMMON_TASKS))
 
     def confirm_all(self, *decisions):
-        with feed(*decisions, ""):
+        inputs = [x for d in decisions for x in (d, "")] + ["surprise", "missing", ""]
+        with feed(*inputs):
             run(study.confirm, folder=self.folder)
 
     def make_tasks(self, turns, **kw):
@@ -209,7 +241,7 @@ class AnswerStage(unittest.TestCase):
         self.assertEqual(len(rows_), 4)
         self.assertIn("T1  Below are rough notes", out)
         self.assertIn("python3 study.py ask", out)
-        self.assertIn("Next: python3 study.py generate", out)
+        self.assertIn("Next: python3 study.py review", out)
 
     def test_ask_adds_one_masked_own_task_last_and_can_be_cancelled(self):
         rows_, _ = self.make_tasks([], no_replay=True, output=self.dir / "a1.json")
@@ -236,8 +268,8 @@ class AnswerStage(unittest.TestCase):
         turns = [Turn(i) for i in range(30)]
         with mock.patch.object(study, "load_turns", lambda a: turns):
             out = run(study.prepare, output=self.dir / "p.json", max_messages=48, days=7, exclude_recent_days=0)
-        self.assertIn(str((self.dir / "p.json").resolve()), out)
-        self.assertIn("you do not need to enter anything", out)
+        self.assertIn("Nothing has been sent yet", out)
+        self.assertIn("review step", out)
         self.assertNotIn("Recommended sample", out)
         self.assertIn("Next: python3 study.py tasks", out)
 
@@ -260,7 +292,7 @@ class AnswerStage(unittest.TestCase):
         data = json.loads((self.folder / "eval_answers.local.json").read_text())
         self.assertEqual(set(data[0]["answers"]), {"A", "B", "C"})
         self.assertTrue(data[0]["rubric"])
-        inputs = ["x", "y", "clear", "why",                  # T1: best X, worst Y, clarity, reason
+        inputs = ["x", "y", "clear", "", "1 3", "", "why",   # T1: best X, worst Y, clarity, tags (re-asked), reason (re-asked)
                   "tie", "cannot tell",                       # T2: cannot tell, why
                   "skip", "needs a file"]                     # T3: not a fair test, what is wrong with the question
         with feed(*inputs):                            # no checklist prompts by default
@@ -273,6 +305,7 @@ class AnswerStage(unittest.TestCase):
         self.assertNotIn("checklist_items", r[0])
         self.assertNotIn("below_threshold", r[0])
         self.assertEqual((r[0]["clarity"], r[0]["reason"], r[0]["question_note"]), ("clear", "why", ""))
+        self.assertEqual((r[0]["reason_tags"], r[1]["reason_tags"]), ("accurate clearer", ""))
         self.assertEqual((r[1]["reason"], r[1]["clarity"]), ("cannot tell", ""))
         self.assertEqual(r[2]["question_note"], "needs a file")
         self.assertEqual(r[0]["sim_none_direct"], "1.0")                 # demo answers are identical
@@ -291,7 +324,7 @@ class AnswerStage(unittest.TestCase):
         self.assertEqual(rows(self.folder / "decisions.share.csv")[0]["participant"], key["participant"])
 
     def test_bundle_contains_only_share_files(self):
-        with feed("x", "y", "clear", "ok", "", "skip", "", "skip", ""):   # task 1 ranked, 2 and 3 skipped
+        with feed("x", "y", "clear", "1", "ok", "skip", "", "skip", ""):   # task 1 ranked, 2 and 3 skipped
             run(study.answers, folder=self.folder, tasks=self.tasks, n=6, model=None, demo=True)
             run(study.compare, folder=self.folder)
         with self.assertRaises(ValueError):       # decisions and choice are still missing
@@ -344,7 +377,7 @@ class AnswerStage(unittest.TestCase):
 
     def test_optional_checklist_never_changes_the_ranking(self):
         run(study.answers, folder=self.folder, tasks=self.tasks, n=1, model=None, demo=True)
-        with feed("one", "", "x", "y", "slight", "ok", "", "none"):   # checklist; X best, Y worst, clarity, reason, note; "none meet"
+        with feed("one", "", "x", "y", "slight", "1", "ok", "none"):   # checklist; X best, Y worst, clarity, reason, note; "none meet"
             run(study.compare, folder=self.folder, checklist=True)
         r = rows(self.folder / "compare.share.csv")[0]
         self.assertEqual(r["best_meets"], "0")                  # the winner met no checklist item; ranking unchanged
@@ -354,12 +387,12 @@ class AnswerStage(unittest.TestCase):
     def test_each_step_explains_what_is_happening(self):
         out = run(study.answers, folder=self.folder, tasks=self.tasks, n=6, model=None, demo=True)
         self.assertIn("You do not answer anything in this step and no question is shown yet", out)
-        with feed("x", "y", "clear", "", "", "tie", "", "skip", ""):
+        with feed("x", "y", "clear", "2", "r", "tie", "", "skip", ""):
             out = run(study.compare, folder=self.folder)
         # the compare intro is printed before the first task is shown
         self.assertIn("one at a time", out)
         self.assertIn("Nothing is graded", out)
-        with feed("k", "k", "k", ""):
+        with feed("k", "", "k", "", "k", "", "s", "m", ""):
             out = run(study.confirm, folder=self.folder)
         self.assertIn("for the first time", out)
         with feed("x", "ok", ""):
@@ -395,7 +428,7 @@ class AnswerStage(unittest.TestCase):
         self.assertIn("direct method returned no items", out)
         data = json.loads((self.folder / "eval_answers.local.json").read_text())
         self.assertEqual(set(data[0]["answers"]), {"A", "C"})
-        with feed("x", "forced", "ok", ""):                     # two conditions: best only, worst implied
+        with feed("x", "forced", "1", "ok"):                     # two conditions: best only, worst implied
             run(study.compare, folder=self.folder)
         r = rows(self.folder / "compare.share.csv")[0]
         self.assertEqual({r["best_condition"], r["worst_condition"]}, {"none", "structured"})
@@ -412,6 +445,9 @@ class AnswerStage(unittest.TestCase):
                  {"task_id": "O1", "kind": "own", "opening_prompt": "own prompt"}]
         path = self.dir / "two.json"
         path.write_text(json.dumps(tasks))
+        with self.assertRaisesRegex(ValueError, "R1"):          # own-chat tasks need approval before anything is sent
+            run(study.answers, folder=self.folder, tasks=path, n=6, model="m", demo=False)
+        study.apply_task_review(path, [])
         with mock.patch.object(study, "run_claude", lambda prompt, model, system=None: calls.append(prompt) or "a"):
             run(study.answers, folder=self.folder, tasks=path, n=6, model="m", demo=False)
         self.assertEqual(len(calls), 9)
@@ -436,9 +472,10 @@ class CodexStudyFlow(unittest.TestCase):
                 run(study.prepare, codex_logs=root, output=sample, max_messages=48,
                     days=7, exclude_recent_days=0)
             self.assertEqual(study.read_json(sample)["engine"], "codex")
-            with self.assertRaisesRegex(ValueError, "--confirm-reviewed"):
+            with self.assertRaisesRegex(ValueError, "study.py review"):
                 run(study.generate, history=sample, folder=folder, demo=False, model=None,
-                    confirm_reviewed=False)
+                    confirm_reviewed=True)                  # the old flag no longer skips the review
+            study.apply_history_review(sample, [])
             responses = [json.dumps(study.demo_response(stage))
                          for stage in ("direct", "observations", "structured")]
             with mock.patch.object(study, "run_codex", side_effect=responses + ["Answer"] * 3) as codex, \
@@ -578,3 +615,22 @@ class DaySelection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CodexLogs(unittest.TestCase):
+    def test_agents_md_does_not_hide_the_real_opening_message(self):
+        from context_user.sources import read_codex
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "2026" / "11" / "20" / "rollout-x.jsonl"
+            path.parent.mkdir(parents=True)
+            def line(role, text):
+                return json.dumps({"timestamp": "2026-11-20T10:00:00Z", "type": "response_item", "payload": {
+                    "type": "message", "role": role, "content": [{"type": "input_text", "text": text}]}})
+            path.write_text("\n".join([
+                json.dumps({"timestamp": "2026-11-20T10:00:00Z", "type": "session_meta", "payload": {"id": "s1"}}),
+                line("user", "# AGENTS.md instructions for /p\n\n<INSTRUCTIONS>\nUse uv.\n</INSTRUCTIONS>"),
+                line("user", "<user_instructions>older layout</user_instructions>"),
+                line("user", "<environment_context>\n<cwd>/p</cwd>\n</environment_context>"),
+                line("user", "Real opening message"), line("user", "shorter")]) + "\n")
+            turns = list(read_codex(Path(tmp)))
+        self.assertEqual([(t.index, t.text) for t in turns], [(0, "Real opening message"), (1, "shorter")])

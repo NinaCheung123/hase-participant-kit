@@ -305,7 +305,10 @@ def read_chat_export(path: Path) -> tuple[list[Turn], list[tuple]]:
 
 CURSOR_TS = re.compile(r"<timestamp>(.*?)</timestamp>", re.S)
 CODEX_SKIP_PREFIXES = ("<environment_context>", "<app-context>", "<permissions instructions>",
-                       "<external_codex_apps", "The following is the Codex agent history")
+                       "<external_codex_apps", "The following is the Codex agent history",
+                       # AGENTS.md / user instructions are logged as a user message; without this the person's real
+                       # first message gets index 1 and is never offered as a replay task.
+                       "<user_instructions>", "# AGENTS.md instructions")
 
 
 def _cursor_transcript_ts(text: str):
