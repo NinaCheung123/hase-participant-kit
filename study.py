@@ -32,6 +32,8 @@ MAX_AI_CHARS = 300       # end of the assistant's previous reply, attached only 
 TEXT_CHARS = 420
 MAX_SKILLS = 5
 VERSION = 2
+ENGINE_NAMES = {"claude": "Claude Code", "codex": "Codex"}
+DEFAULT_MODELS = {"claude": "sonnet", "codex": "gpt-6.2-sol"}
 KINDS = ("preference", "workflow", "tool", "knowledge", "other")
 TYPES = ("skill", "principle")
 TOKENS_PER_MESSAGE = (400, 700)   # rough estimate from a measured run (about 650 per message); check /usage
@@ -132,6 +134,8 @@ def choose_days(days, n_days, rng):
 def prepare(args):
     if args.output.exists():
         raise ValueError("Choose a new output path. Your existing review file was preserved.")
+    engine = "codex" if getattr(args, "codex_logs", None) else "claude"
+    engine_name = ENGINE_NAMES[engine]
     turns = load_turns(args)
     candidates = {}
     for turn in turns:
@@ -200,7 +204,8 @@ def prepare(args):
             row["ai"] = prev
             tails += 1
         rows.append(row)
-    save_json(args.output, rows)
+    history = {"engine": engine, "messages": rows} if engine == "codex" else rows
+    save_json(args.output, history)
     low, high = (len(rows) * k // 1000 for k in TOKENS_PER_MESSAGE)
     print(f"Prepared {len(rows)} messages from {len(chats)} chats on {len(chosen)} days "
           f"({', '.join(d.isoformat() for d in chosen)}). {note}".rstrip())
@@ -210,17 +215,16 @@ def prepare(args):
           + (", ".join(f"{n} {name}" for name, n in sorted(dropped.items())) if dropped else "0")
           + " messages on sensitive topics. Names and other details are not detected.")
     where = args.output.resolve()
-    if getattr(args, "review", False):
+    if engine == "codex" or getattr(args, "review", False):
         (args.output.parent / (args.output.name + ".needs-review")).write_text("review required\n")
         print(f"Read {where} in any text editor, delete anything you do not want sent, then run "
-              "generate with --confirm-reviewed.")
+              f"generate with --confirm-reviewed. This run uses your own {engine_name} login.")
     else:
-        print(f"What will be sent to Claude is saved in {where}. You do not have to open it; if you want to read "
+        print(f"What will be sent to {engine_name} is saved in {where}. You do not have to open it; if you want to read "
               f"it first, open that file in any text editor (on a Mac: open \"{where}\"). Prepare again with "
               "--review to make reading it compulsory.")
     print(f"This run sends {len(rows)} messages (the default is about {RECOMMENDED_TURNS}; you do not need to enter "
-          f"anything) and uses roughly {low}k to {high}k tokens of your Claude allowance (a rough estimate; check "
-          "/usage before and after).")
+          f"anything) and uses roughly {low}k to {high}k tokens from your {engine_name} allowance (a rough estimate).")
     if len(rows) > RECOMMENDED_TURNS + len(chosen):
         print(f"Note: {len(rows)} is more than the recommended {RECOMMENDED_TURNS}. It works, but costs more "
               "and adds little; use --max-messages to reduce it.")
@@ -228,7 +232,13 @@ def prepare(args):
 
 
 def load_history(path):
-    rows = read_json(path)
+    data = read_json(path)
+    if isinstance(data, dict):
+        if data.get("engine") not in ENGINE_NAMES or set(data) != {"engine", "messages"}:
+            raise ValueError("Keep the sample engine and messages fields created by prepare.")
+        engine, rows = data["engine"], data["messages"]
+    else:
+        engine, rows = "claude", data
     if not isinstance(rows, list) or not 1 <= len(rows) <= MAX_TURNS:
         raise ValueError(f"History must contain 1–{MAX_TURNS} message objects (about {RECOMMENDED_TURNS} is recommended).")
     ids = set()
@@ -248,7 +258,7 @@ def load_history(path):
         counts[row["chat"]] += 1
     if len(counts) < 2 or max(counts.values()) > MAX_PER_CHAT:
         raise ValueError(f"Use at least two chats and at most {MAX_PER_CHAT} messages per chat.")
-    return rows
+    return engine, rows
 
 
 def run_claude(prompt, model, system=None):
@@ -271,22 +281,49 @@ def run_claude(prompt, model, system=None):
     return response["result"].strip()
 
 
+def run_codex(prompt, model, system=None):
+    env = os.environ.copy()
+    for name in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"):
+        env.pop(name, None)
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / "last-message.txt"
+        command = [
+            "codex", "-a", "never", "exec", "--ignore-user-config", "--ignore-rules",
+            "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only",
+            "--disable", "shell_tool", "-c", 'web_search="disabled"',
+            "-c", 'forced_login_method="chatgpt"', "--model", model,
+            "--output-last-message", str(output), "-",
+        ]
+        instructions = "Respond directly in text without using tools.\n" + (system or SYSTEM)
+        try:
+            result = subprocess.run(command, input=instructions + "\n\n" + prompt,
+                                    text=True, capture_output=True, env=env, cwd=directory,
+                                    timeout=240, check=False)
+        except FileNotFoundError as error:
+            raise ValueError("Codex CLI is required in this terminal. Install it and run codex login.") from error
+        if result.returncode or not output.is_file():
+            raise ValueError("Codex could not complete the step. Check codex login status, model access, "
+                             "usage and CLI version, then rerun.")
+        return output.read_text(encoding="utf-8").strip()
+
+
+def run_model(engine, prompt, model, system=None):
+    runner = run_codex if engine == "codex" else run_claude
+    return runner(prompt, model, system)
+
+
 def parse_array(text):
     """First complete JSON array in the reply; the model sometimes adds a note after it."""
     start = text.find("[")
     if start < 0:
-        raise ValueError("Claude returned an unexpected format. Rerun to retry this step.")
+        raise ValueError("The model returned an unexpected format. Rerun to retry this step.")
     try:
         value, _ = json.JSONDecoder().raw_decode(text[start:])
     except json.JSONDecodeError:
-        raise ValueError("Claude returned an unexpected format. Rerun to retry this step.")
+        raise ValueError("The model returned an unexpected format. Rerun to retry this step.")
     if not isinstance(value, list):
-        raise ValueError("Claude returned an unexpected format. Rerun to retry this step.")
+        raise ValueError("The model returned an unexpected format. Rerun to retry this step.")
     return value
-
-
-def call_claude(prompt, model):
-    return parse_array(run_claude(prompt, model))
 
 
 def validate_observations(items, history):
@@ -353,28 +390,36 @@ def demo_response(step):
 
 
 def generate(args):
-    history = ([{"id": "m1", "chat": "c1", "text": "Lead with the recommendation on decision notes."},
-                {"id": "m2", "chat": "c2", "text": "Put the recommended action at the top of this decision note."}]
-               if args.demo else load_history(args.history))
-    model = "offline-demo" if args.demo else args.model
-    key = hashlib.sha256(json.dumps([VERSION, model, history], sort_keys=True).encode()).hexdigest()
+    if args.demo:
+        engine, model = "claude", "offline-demo"
+        history = [{"id": "m1", "chat": "c1", "text": "Lead with the recommendation on decision notes."},
+                   {"id": "m2", "chat": "c2", "text": "Put the recommended action at the top of this decision note."}]
+    else:
+        engine, history = load_history(args.history)
+        model = args.model or DEFAULT_MODELS[engine]
+    engine_name = ENGINE_NAMES[engine]
+    identity = [VERSION, model, history]
+    if engine != "claude":
+        identity.append(engine)
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     state_path = args.folder / "checkpoint.local.json"
     state = read_json(state_path) if state_path.exists() else {"key": key, "steps": {}}
     if state["key"] != key:
         raise ValueError("This folder belongs to a different input or model. Choose a new study folder.")
     marker = None if args.demo else args.history.parent / (args.history.name + ".needs-review")
-    if marker is not None and marker.exists() and not args.confirm_reviewed:
-        raise ValueError("You asked to review the input. Read it, then add --confirm-reviewed to send it to Claude.")
+    if not args.demo and (engine == "codex" or marker.exists()) and not args.confirm_reviewed:
+        raise ValueError(f"Review the input, then add --confirm-reviewed to send it to {engine_name}.")
     payload = json.dumps(history, ensure_ascii=False)
 
     if not args.demo and len(state["steps"]) < 3:
-        print("Claude is now reading your selected messages and writing two sets of skills and principles in "
+        print(f"{engine_name} ({model}) is now reading your selected messages and writing two sets in "
               "three steps. You do not need to do anything; it takes about 2 to 5 minutes.")
 
     def stage(name, prompt, validate):
         if name not in state["steps"]:
             print(f"Running generation step {len(state['steps']) + 1} of 3…", flush=True)
-            response = demo_response(name) if args.demo else call_claude(prompt, model)
+            response = (demo_response(name) if args.demo
+                        else parse_array(run_model(engine, prompt, model)))
             state["steps"][name] = validate(response)
             save_json(state_path, state)
         return state["steps"][name]
@@ -399,6 +444,7 @@ def generate(args):
             blinded.append({"card_id": card_id, **{k: card[k] for k in ("title", "when", "instruction", "type", "kind", "chats")}})
         save_json(args.folder / "key.share.json", {
             "protocol": VERSION, "demo": args.demo, "model": model,
+            **({"engine": engine} if not args.demo else {}),
             "turns": len(history), "chats": len({row["chat"] for row in history}),
             "participant": uuid.uuid4().hex[:12],
             "yield": {"direct": len(direct), "structured": len(structured)},
@@ -439,7 +485,7 @@ def confirm(args):
     state = (read_json(state_path) if state_path.exists()
              else {"participant": read_json(folder / "key.share.json")["participant"], "decisions": {}, "added": []})
     if any(c["card_id"] not in state["decisions"] for c in cards):
-        print("Now you see, for the first time, the skills and principles Claude wrote from your messages. "
+        print("Now you see, for the first time, the skills and principles generated from your messages. "
               "These were the guidance behind the answers you just compared. Keep each one that is really you "
               "and delete the rest (type e to edit one first).")
     for i, card in enumerate(cards, start=1):
@@ -502,7 +548,7 @@ def choose(args):
     if "choice" not in state:
         cards = {c["card_id"]: c for c in read_cards(folder)}
         key = read_json(folder / "key.share.json")
-        print("These are the two sets of skills and principles Claude wrote from your messages, made by two "
+        print("These are the two sets of skills and principles generated from your messages, made by two "
               "different methods and shown without saying which is which.\n"
               "Imagine you keep one set as the standing instructions your AI assistant carries into all your future "
               "work, and that it grows over time. Which set is the better starting point: the one that sounds most "
@@ -580,7 +626,7 @@ def export(args):
             encoding="utf-8")
     (out / "README.md").write_text(
         "Use with Claude Code: copy `skills/*` into `~/.claude/skills/` and paste `principles.md` into your "
-        "`CLAUDE.md`. Other tools: paste the text into your custom instructions. These files stay on your "
+        "`CLAUDE.md`. For Codex, use `~/.agents/skills/` and `AGENTS.md`. These files stay on your "
         "computer; the study never receives them.\n", encoding="utf-8")
     print(f"Wrote {len(principles)} principles and {len(skills)} skills to {out}.")
 
@@ -712,8 +758,52 @@ def web(args):
                 subprocess.run(["xdg-open", str(page)], check=False)
         except OSError as error:
             print(f"Could not open the browser automatically ({error}). Open the page path above yourself.")
-    print("After you download the three .share.csv files from the page, put them in this folder, then:")
-    print(f"  python3 study.py bundle --folder {folder}")
+    print("Judge the answers on the page. When it saves web_results.json, come back here and run, one at a time:")
+    print(f"  python3 study.py web-import --folder {folder}\n  python3 study.py export --folder {folder}\n"
+          f"  python3 study.py bundle --folder {folder}")
+
+
+def web_import(args):
+    """Turn the browser page's web_results.json into the same local state and share files the terminal steps write."""
+    folder = args.folder
+    candidates = [args.results] if args.results else [folder / "web_results.json", Path.home() / "Downloads" / "web_results.json"]
+    path = next((p for p in candidates if p and Path(p).exists()), None)
+    if path is None:
+        raise ValueError("web_results.json not found in the study folder or in Downloads. Finish the browser page "
+                         "first, or pass --results PATH.")
+    results = read_json(path)
+    key = read_json(folder / "key.share.json")
+    if results.get("participant") != key["participant"]:
+        raise ValueError("web_results.json belongs to a different study folder (participant code differs).")
+    tasks = load_eval_tasks(folder / "eval_answers.local.json")
+    stage1 = results.get("stage1", {})
+    for task in tasks:
+        s1 = stage1.get(task["task_id"])
+        done = s1 and (s1.get("result") in ("tie", "skip") or (s1.get("best") and s1.get("worst") and s1.get("clarity")))
+        if not done:
+            raise ValueError(f"Task {task['task_id']} was not finished in the browser page. Open the page and complete it.")
+    cards = read_cards(folder)
+    decisions = {}
+    for card in cards:
+        entry = results.get("decisions", {}).get(card["card_id"])
+        if not entry or entry.get("decision") not in ("keep", "edit", "delete"):
+            raise ValueError(f"Item {card['card_id']} has no keep, edit or delete decision in the browser page.")
+        decisions[card["card_id"]] = ({"decision": entry["decision"]} if entry["decision"] != "edit" else
+                                      {"decision": "edit", "when": entry.get("when") or card["when"],
+                                       "instruction": entry.get("instruction") or card["instruction"]})
+    choice = results.get("choice", {})
+    if choice.get("pick") not in ("x", "y", "same", "neither"):
+        raise ValueError("No set choice in the browser page.")
+    save_json(folder / "compare.local.json", {"order": results["order"], "stage1": stage1, "checklist": {}})
+    state_path = folder / "decisions.local.json"
+    state = read_json(state_path) if state_path.exists() else {"participant": key["participant"], "added": []}
+    state.update({"decisions": decisions, "added_done": True, "choice": {
+        "pick": choice["pick"], "reason": choice.get("reason", ""), "comments": choice.get("comments", "")}})
+    save_json(state_path, state)
+    sub = argparse.Namespace(folder=folder, checklist=False)
+    compare(sub)
+    confirm(sub)
+    choose(sub)
 
 
 def bundle(args):
@@ -794,7 +884,7 @@ def tasks(args):
     for task in rows + replay:
         print(f"  {task['task_id']}  {' '.join(task['opening_prompt'].split())[:70]}...")
     print("Common tasks are set by the organiser; leave them as they are. Open the file and delete any replay "
-          "task you would not want sent to Claude or cannot judge.")
+          "task you would not want sent to your AI account or cannot judge.")
     print("Optional: python3 study.py ask     (type a question of your own; it is added as the last task)")
     print("Next: python3 study.py generate")
 
@@ -838,6 +928,12 @@ def answers(args):
         print(f"Warning: only the first {len(tasks_)} of {len(all_tasks)} tasks are answered (--n {args.n}); the rest are dropped.")
     if not tasks_ or any(not t.get("task_id") or not t.get("opening_prompt") for t in tasks_):
         raise ValueError("The tasks file is empty or malformed. Run tasks again.")
+    run_key = read_json(folder / "key.share.json")
+    engine = run_key.get("engine", "claude")
+    model = run_key.get("model") if "engine" in run_key else args.model or DEFAULT_MODELS[engine]
+    if "engine" in run_key and args.model and args.model != model:
+        raise ValueError(f"This run was generated with {model}. Use that model for all answer conditions.")
+    engine_name = ENGINE_NAMES[engine]
     items = generated_items(folder)
     conditions = {"A": ""}
     for letter, method in (("B", "direct"), ("C", "structured")):
@@ -848,11 +944,11 @@ def answers(args):
     if len(conditions) < 2:
         raise ValueError("Neither method returned any items; there is nothing to compare with no skills.")
     low, high = (len(tasks_) * len(conditions) * k // 1000 for k in ANSWER_TOKENS)
-    print("Claude is now answering each task three ways: with no skills, with the first method's items, and "
+    print(f"{engine_name} ({model}) is now answering each task with no skills, with the first method's items, and "
           "with the second method's items, so that you can compare the answers next. You do not answer "
           "anything in this step and no question is shown yet; it takes about 2 to 5 minutes. Progress is "
           "shown below.")
-    print(f"{len(tasks_)} tasks x {len(conditions)} conditions = {len(tasks_) * len(conditions)} Claude calls, "
+    print(f"{len(tasks_)} tasks x {len(conditions)} conditions = {len(tasks_) * len(conditions)} {engine_name} calls, "
           f"roughly {low}k to {high}k tokens (a rough estimate; check /usage).")
     path = folder / "eval_answers.local.json"
     done = {t["task_id"]: t for t in read_json(path)} if path.exists() else {}
@@ -861,9 +957,9 @@ def answers(args):
             continue
         done[task["task_id"]] = {"task_id": task["task_id"], "kind": task.get("kind", ""), "task": task["opening_prompt"],
                                  "rubric": task.get("rubric", ""), "answers": {
-            letter: ("(demo answer)" if args.demo else run_claude(
-                prefix + "Task:\n" + task["opening_prompt"]
-                + (f"\n\n{REPLAY_WORDS}" if task.get("kind") in ("replay", "own") else ""), args.model, ANSWER_SYSTEM))
+            letter: ("(demo answer)" if args.demo else run_model(
+                engine, prefix + "Task:\n" + task["opening_prompt"]
+                + (f"\n\n{REPLAY_WORDS}" if task.get("kind") in ("replay", "own") else ""), model, ANSWER_SYSTEM))
             for letter, prefix in conditions.items()}}
         outs = done[task["task_id"]]["answers"]
         done[task["task_id"]]["similarity"] = {f"{x}:{y}": similarity(outs[x], outs[y])
@@ -1060,7 +1156,7 @@ def main():
     generation = commands.add_parser("generate", help="run both methods on reviewed history")
     generation.add_argument("--history", type=Path, default=Path("history.review.json"))
     generation.add_argument("--folder", type=Path, default=Path("my-study"))
-    generation.add_argument("--model", default="sonnet")
+    generation.add_argument("--model", help="override the model used for this run")
     generation.add_argument("--confirm-reviewed", action="store_true")
     generation.set_defaults(handler=generate, demo=False)
     demo = commands.add_parser("demo", help="exercise the workflow offline with synthetic input")
@@ -1078,6 +1174,10 @@ def main():
     web_cmd.add_argument("--folder", type=Path, default=Path("my-study"))
     web_cmd.add_argument("--no-open", action="store_true", help="write web_session.json only; do not open a browser")
     web_cmd.set_defaults(handler=web)
+    imp = commands.add_parser("web-import", help="after the browser page: write your share files from web_results.json")
+    imp.add_argument("--folder", type=Path, default=Path("my-study"))
+    imp.add_argument("--results", type=Path, help="path of web_results.json (default: the study folder or Downloads)")
+    imp.set_defaults(handler=web_import)
     asking = commands.add_parser("ask", help="optional: add a question of your own as the last task")
     asking.add_argument("--tasks", type=Path, default=Path("tasks.review.json"))
     asking.set_defaults(handler=ask)
@@ -1085,7 +1185,7 @@ def main():
     ans.add_argument("--folder", type=Path, default=Path("my-study"))
     ans.add_argument("--tasks", type=Path, default=Path("tasks.review.json"))
     ans.add_argument("--n", type=int, default=8, help="maximum number of tasks to answer (default 8: four common, two replay, one own, one control)")
-    ans.add_argument("--model", default="sonnet")
+    ans.add_argument("--model", help="model from generate (checked for newly generated runs)")
     ans.set_defaults(handler=answers, demo=False)
     comp = commands.add_parser("compare", help="judge the answers blind (best / worst / tie / skip)")
     comp.add_argument("--checklist", action="store_true", help="optional: write your own points before seeing answers")
@@ -1099,7 +1199,7 @@ def main():
     except (EOFError, KeyboardInterrupt):
         parser.exit(1, "\nStopped. Rerun the same command to continue from the last saved step.\n")
     except subprocess.TimeoutExpired:
-        parser.exit(1, "Claude timed out. Rerun the command to resume from the last saved step.\n")
+        parser.exit(1, "The model timed out. Rerun to resume from the last saved step.\n")
     except (OSError, ValueError, KeyError) as error:
         parser.exit(1, f"Study error: {error}\n")
 

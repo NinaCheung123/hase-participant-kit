@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HASE study — judge in the browser</title>
+<style>
+  :root {
+    --ink: #141414;
+    --mute: #5a5a5a;
+    --line: #d8d8d8;
+    --bg: #fafaf8;
+    --panel: #fff;
+    --soft: #f2f1ec;
+    --accent: #1f4d3a;
+    --warn: #8a3b2a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    background: rgba(250,250,248,.94);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 18px;
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  header b { font: 700 13px/1.2 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+  .bar { flex: 1; min-width: 120px; height: 6px; background: var(--soft); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .mut { color: var(--mute); font-size: 13px; }
+  main { max-width: 1120px; margin: 0 auto; padding: 22px 18px 88px; }
+  .panel {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 18px 18px 16px;
+    margin-bottom: 14px;
+  }
+  h1 { font-size: 1.55rem; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font: 700 13px/1.3 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 10px; }
+  p { margin: 0 0 12px; }
+  code { font: 12px/1.4 ui-monospace, Menlo, monospace; background: var(--soft); padding: 1px 5px; }
+  button, .file {
+    font: 600 13px/1.2 system-ui, sans-serif;
+    padding: 8px 12px;
+    border: 1px solid var(--ink);
+    background: var(--panel);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  button.primary { background: var(--ink); color: #fff; }
+  button.accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  button.w[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: #fff; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .task {
+    white-space: pre-wrap;
+    border: 1px solid var(--line);
+    background: var(--soft);
+    padding: 12px 14px;
+    margin: 10px 0 14px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    border: 1px solid var(--line);
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    min-height: 220px;
+  }
+  .card.best { border-width: 2px; border-color: var(--accent); }
+  .card.worst { border-style: dashed; border-color: var(--warn); }
+  .card .head {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    font: 700 13px/1.2 system-ui, sans-serif;
+    display: flex; justify-content: space-between;
+  }
+  .card .body {
+    padding: 12px;
+    white-space: pre-wrap;
+    overflow: auto;
+    max-height: 42vh;
+    flex: 1;
+    font-size: 14px;
+  }
+  .card .foot {
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  input[type=text], textarea, select {
+    width: 100%;
+    font: inherit;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    background: #fff;
+  }
+  .hidden { display: none !important; }
+  .set { border: 1px solid var(--line); padding: 12px; margin: 10px 0; background: #fff; }
+  .set h3 { margin: 0 0 8px; font: 700 14px/1.2 system-ui, sans-serif; }
+  .item { border-top: 1px solid var(--line); padding: 10px 0; }
+  .item:first-of-type { border-top: 0; padding-top: 0; }
+  .item .actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin: 14px 0 4px;
+  }
+  @media (max-width: 700px) { .steps { grid-template-columns: 1fr 1fr; } }
+  .steps div {
+    border: 1px solid var(--line);
+    background: var(--soft);
+    padding: 10px;
+    font-size: 13px;
+  }
+  .steps b { display: block; font: 700 11px/1.2 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 4px; }
+  .note {
+    border-left: 3px solid var(--accent);
+    background: #eef5f1;
+    padding: 10px 12px;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  .err { color: var(--warn); font-size: 13px; margin-top: 8px; }
+  .pill { font: 600 12px/1 system-ui, sans-serif; padding: 5px 9px; border: 1px solid var(--line); border-radius: 99px; color: var(--mute); background: var(--panel); }
+  .pill.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .pill.done { background: #eef5f1; color: var(--accent); border-color: var(--accent); }
+  button { border-radius: 6px; }
+  .big { font-size: 15px; padding: 11px 16px; }
+  ol.how { margin: 8px 0 14px 18px; padding: 0; } ol.how li { margin: 6px 0; }
+</style>
+</head>
+<body>
+<header>
+  <b>HASE study</b>
+  <span class="pill" id="p0">Load</span><span class="pill" id="p1">1 Compare</span><span class="pill" id="p2">2 Keep or delete</span><span class="pill" id="p3">3 Choose a set</span><span class="pill" id="p4">Save</span>
+  <span id="phase" class="mut"></span>
+  <div class="bar"><i id="bar"></i></div>
+  <span id="count" class="mut"></span>
+</header>
+
+<main>
+  <section id="setup" class="panel">
+    <h1>Judge your answers here</h1>
+    <p class="mut">Everything stays on your computer; nothing is uploaded. You do not type commands on this page.</p>
+    <ol class="how">
+      <li><b>Load</b> the file <code>web_session.json</code> (the terminal printed its path when you ran <code>python3 study.py web</code>).</li>
+      <li><b>Compare:</b> for each task, pick the answer you would rather receive and the one you would least like. The labels X, Y, Z do not say how an answer was written.</li>
+      <li><b>Keep or delete</b> each skill or principle the tool wrote from your messages.</li>
+      <li><b>Choose</b> which of the two sets is the better one to keep and build on.</li>
+      <li><b>Save:</b> the page gives you one file, <code>web_results.json</code>. Back in the terminal, run <code>python3 study.py web-import</code> and then <code>export</code> and <code>bundle</code>.</li>
+    </ol>
+    <div class="note">About 12 to 20 minutes. You can close the page and come back; your choices are kept in this browser.</div>
+
+    <h2>Load web_session.json</h2>
+    <input type="file" id="sessionFile" accept=".json,application/json">
+    <div class="hidden"><input type="file" id="answersFile"><input type="file" id="cardsFile"><input type="file" id="keyFile"></div>
+    <p id="loadStatus" class="mut" style="margin-top:10px"></p>
+    <div class="row" style="margin-top:14px">
+      <button type="button" class="primary big" id="startBtn" disabled>Start</button>
+    </div>
+    <p id="setupErr" class="err"></p>
+  </section>
+
+  <section id="stageCompare" class="hidden">
+    <div class="panel">
+      <h2>Compare answers (blind)</h2>
+      <p class="mut">All answers are to the same task. Pick the one you would most like to receive (Best) and the one you would least like (Worst). If you cannot tell, press Tie; if the task itself is unfair or unclear, press Skip. Nothing is graded.</p>
+      <div class="task" id="taskText"></div>
+      <div class="grid" id="cards"></div>
+      <div class="row">
+        <span class="mut">How clear was the difference? <b>clear</b> = obvious, <b>slight</b> = small, <b>forced</b> = you had to pick but could hardly tell:</span>
+        <button type="button" data-clarity="clear">clear</button>
+        <button type="button" data-clarity="slight">slight</button>
+        <button type="button" data-clarity="forced">forced</button>
+      </div>
+      <div style="margin-top:10px">
+        <label class="mut">One-line reason (optional)</label>
+        <input type="text" id="reason1" placeholder="Optional: what made the best better or the worst worse?">
+      </div>
+      <div class="row">
+        <button type="button" id="tieBtn">Tie: cannot tell</button>
+        <button type="button" id="skipBtn">Skip: unfair or unclear task</button>
+        <span style="flex:1"></span>
+        <button type="button" id="prevBtn">← Prev</button>
+        <button type="button" class="primary big" id="nextBtn">Next →</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="stageConfirm" class="hidden">
+    <div class="panel">
+      <h2>Keep or delete each item</h2>
+      <p class="mut">These skills and principles were written by Claude from your messages, and they were the guidance behind the answers you just compared. Keep the ones that are really you; delete the rest. Edit is optional.</p>
+      <div id="confirmList"></div>
+      <div class="row">
+        <button type="button" class="primary big" id="confirmDone">Continue</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="stageChoose" class="hidden">
+    <div class="panel">
+      <h2>Which set is the better one to keep and build on?</h2>
+      <p class="mut">Two methods wrote these two sets; you are not told which is which. Imagine one set becomes the standing instructions your AI assistant carries into all your future work, and grows over time. same = no real difference; neither = you would keep neither.</p>
+      <div id="sets"></div>
+      <div class="row" id="pickRow"></div>
+      <input type="text" id="reason2" placeholder="One-line reason (optional)" style="margin-top:10px">
+      <input type="text" id="comment2" placeholder="Optional comment (timing, confusion, problems)" style="margin-top:8px">
+      <div class="row" style="margin-top:12px">
+        <button type="button" class="accent big" id="finishBtn">Finish and save web_results.json</button>
+      </div>
+      <p id="reveal" class="note hidden" style="margin-top:14px"></p>
+    </div>
+  </section>
+
+  <section id="doneSec" class="hidden panel">
+    <h2>Saved: one last step in the terminal</h2>
+    <p>Your browser saved <code>web_results.json</code> (usually in your Downloads folder). In the terminal, in the kit folder, run these one at a time:</p>
+    <p><code>python3 study.py web-import</code><br><code>python3 study.py export</code><br><code>python3 study.py bundle</code></p>
+    <p class="mut"><code>web-import</code> finds the file in Downloads or in <code>my-study</code> and writes your share files. Then open each file the tool lists, delete any row you do not want to share, and upload the zip as the README says. The results file stays on your computer.</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  const COND_NAME = { A: "none", B: "direct", C: "structured" };
+  const STORAGE = "hase-study-web-v2";
+  let answers = [];
+  let cards = [];
+  let key = null;
+  let state = emptyState();
+  let idx = 0;
+
+  function emptyState() {
+    return { order: {}, stage1: {}, decisions: {}, choice: null, choiceReason: "", comments: "" };
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const show = (id, on) => $(id).classList.toggle("hidden", !on);
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE, JSON.stringify({ answers, cards, key, state, idx }));
+    } catch (e) {}
+  }
+
+  function restore() {
+    try {
+      const s = JSON.parse(localStorage.getItem(STORAGE) || "null");
+      if (!s || !s.answers || !s.answers.length || !s.cards || !s.key) return false;
+      answers = s.answers; cards = s.cards; key = s.key; state = s.state || emptyState(); idx = s.idx || 0;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function ensureOrders() {
+    answers.forEach((t) => {
+      if (!state.order[t.task_id]) {
+        const present = ["A", "B", "C"].filter((c) => t.answers && String(t.answers[c] || "").trim());
+        state.order[t.task_id] = shuffle(present);
+      }
+    });
+  }
+
+  function progress() {
+    const n = answers.length + cards.length + 1;
+    const doneCompare = answers.filter((t) => state.stage1[t.task_id] && taskComplete(t)).length;
+    const doneConfirm = cards.filter((c) => state.decisions[c.card_id]).length;
+    const doneChoice = state.choice ? 1 : 0;
+    const done = doneCompare + doneConfirm + doneChoice;
+    $("bar").style.width = (n ? (done / n) * 100 : 0) + "%";
+    $("count").textContent = `${doneCompare}/${answers.length} compared · ${doneConfirm}/${cards.length} confirmed`;
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function parseAnswers(data) {
+    if (!Array.isArray(data) || !data.length) throw new Error("Answers file must be a non-empty JSON list.");
+    data.forEach((t) => {
+      const a = t.answers || {};
+      const present = ["A", "B", "C"].filter((c) => a[c] && String(a[c]).trim());
+      if (!t.task_id || present.length < 2) throw new Error("Each task needs task_id and ≥2 answers among A/B/C.");
+      if (!t.task && t.opening_prompt) t.task = t.opening_prompt;
+    });
+    return data;
+  }
+
+  function parseCards(data) {
+    if (!Array.isArray(data) || !data.length) throw new Error("Cards file must be a non-empty JSON list.");
+    data.forEach((c) => {
+      if (!c.card_id || !c.title) throw new Error("Each card needs card_id and title.");
+    });
+    return data;
+  }
+
+  function parseKey(data) {
+    if (!data || !data.sets || !data.cards || !data.participant) {
+      throw new Error("key.share.json needs participant, sets, and cards.");
+    }
+    return data;
+  }
+
+  function parseSession(data) {
+    if (!data.answers || !data.cards || !data.key) {
+      throw new Error("web_session.json needs answers, cards, and key.");
+    }
+    return {
+      answers: parseAnswers(data.answers),
+      cards: parseCards(data.cards),
+      key: parseKey(data.key),
+    };
+  }
+
+  function updateLoadStatus() {
+    const bits = [];
+    if (answers.length) bits.push(`${answers.length} tasks`);
+    if (cards.length) bits.push(`${cards.length} cards`);
+    if (key) bits.push("key");
+    $("loadStatus").textContent = bits.length ? "Loaded: " + bits.join(" · ") : "Nothing loaded yet.";
+    $("startBtn").disabled = !(answers.length && cards.length && key);
+  }
+
+  $("sessionFile").onchange = async (e) => {
+    try {
+      const data = parseSession(JSON.parse(await e.target.files[0].text()));
+      answers = data.answers; cards = data.cards; key = data.key;
+      state = emptyState(); idx = 0;
+      $("setupErr").textContent = "";
+      updateLoadStatus();
+      $("phase").textContent = "";
+    } catch (err) { $("setupErr").textContent = err.message; }
+  };
+
+  $("answersFile").onchange = async (e) => {
+    try {
+      answers = parseAnswers(JSON.parse(await e.target.files[0].text()));
+      $("setupErr").textContent = "";
+      updateLoadStatus();
+    } catch (err) { $("setupErr").textContent = err.message; }
+  };
+  $("cardsFile").onchange = async (e) => {
+    try {
+      cards = parseCards(JSON.parse(await e.target.files[0].text()));
+      $("setupErr").textContent = "";
+      updateLoadStatus();
+    } catch (err) { $("setupErr").textContent = err.message; }
+  };
+  $("keyFile").onchange = async (e) => {
+    try {
+      key = parseKey(JSON.parse(await e.target.files[0].text()));
+      $("setupErr").textContent = "";
+      updateLoadStatus();
+    } catch (err) { $("setupErr").textContent = err.message; }
+  };
+
+  $("startBtn").onclick = () => {
+    if (!answers.length || !cards.length || !key) return;
+    ensureOrders();
+    cards.forEach((c) => {
+      if (!state.decisions[c.card_id]) state.decisions[c.card_id] = { decision: "" };
+    });
+    show("setup", false);
+    show("stageCompare", true);
+    setPhase("Compare");
+    renderTask();
+    persist();
+  };
+
+  function cur() {
+    const t = answers[idx];
+    return state.stage1[t.task_id] || { best: "", worst: "", result: "", clarity: "", reason: "", question_note: "" };
+  }
+
+  function setCur(patch) {
+    const t = answers[idx];
+    state.stage1[t.task_id] = { ...cur(), ...patch };
+    persist();
+  }
+
+  function renderTask() {
+    const t = answers[idx];
+    if (!t) return;
+    const order = state.order[t.task_id];
+    const labels = "XYZ".slice(0, order.length).split("");
+    const s1 = cur();
+    $("taskText").textContent = t.task || "(no task text)";
+    $("reason1").value = s1.reason || "";
+    document.querySelectorAll("[data-clarity]").forEach((b) => {
+      b.setAttribute("aria-pressed", s1.clarity === b.dataset.clarity ? "true" : "false");
+    });
+    const root = $("cards");
+    root.innerHTML = "";
+    labels.forEach((lab, i) => {
+      const cond = order[i];
+      const card = document.createElement("div");
+      card.className = "card";
+      if (s1.best === cond) card.classList.add("best");
+      if (s1.worst === cond) card.classList.add("worst");
+      card.innerHTML = `<div class="head"><span>Answer ${lab}</span><span class="mut">${s1.best === cond ? "BEST" : s1.worst === cond ? "WORST" : ""}</span></div>
+        <div class="body"></div><div class="foot"></div>`;
+      card.querySelector(".body").textContent = t.answers[cond];
+      const foot = card.querySelector(".foot");
+      const bBest = document.createElement("button");
+      bBest.type = "button";
+      bBest.textContent = "Best";
+      bBest.setAttribute("aria-pressed", s1.best === cond ? "true" : "false");
+      bBest.onclick = () => {
+        const next = { ...cur(), result: "", best: cur().best === cond ? "" : cond };
+        if (next.worst === next.best) next.worst = "";
+        if (order.length === 2 && next.best && !next.worst) {
+          next.worst = order.find((c) => c !== next.best);
+        }
+        state.stage1[t.task_id] = next;
+        persist(); renderTask();
+      };
+      const bWorst = document.createElement("button");
+      bWorst.type = "button";
+      bWorst.className = "w";
+      bWorst.textContent = "Worst";
+      bWorst.setAttribute("aria-pressed", s1.worst === cond ? "true" : "false");
+      bWorst.onclick = () => {
+        const next = { ...cur(), result: "", worst: cur().worst === cond ? "" : cond };
+        if (next.best === next.worst) next.best = "";
+        state.stage1[t.task_id] = next;
+        persist(); renderTask();
+      };
+      foot.append(bBest, bWorst);
+      root.appendChild(card);
+    });
+    progress();
+  }
+
+  document.querySelectorAll("[data-clarity]").forEach((b) => {
+    b.onclick = () => {
+      setCur({ clarity: b.dataset.clarity, result: cur().result === "tie" || cur().result === "skip" ? "" : cur().result });
+      renderTask();
+    };
+  });
+
+  $("tieBtn").onclick = () => {
+    setCur({ best: "", worst: "", result: "tie", clarity: "", reason: $("reason1").value.trim() });
+    renderTask();
+  };
+  $("skipBtn").onclick = () => {
+    setCur({ best: "", worst: "", result: "skip", clarity: "", reason: $("reason1").value.trim() });
+    renderTask();
+  };
+
+  function taskComplete(t) {
+    const s = state.stage1[t.task_id];
+    if (!s) return false;
+    if (s.result === "tie" || s.result === "skip") return true;
+    return !!(s.best && s.worst && s.best !== s.worst && s.clarity);
+  }
+
+  $("prevBtn").onclick = () => {
+    setCur({ reason: $("reason1").value.trim() });
+    if (idx > 0) { idx--; renderTask(); persist(); }
+  };
+
+  $("nextBtn").onclick = () => {
+    setCur({ reason: $("reason1").value.trim() });
+    const t = answers[idx];
+    if (!taskComplete(t)) {
+      alert("Pick one Best and one Worst answer and say how clear the difference was, or press Tie or Skip.");
+      return;
+    }
+    if (idx < answers.length - 1) { idx++; renderTask(); persist(); return; }
+    show("stageCompare", false);
+    buildConfirm();
+    show("stageConfirm", true);
+    setPhase("Keep or delete");
+    persist();
+  };
+
+  function buildConfirm() {
+    const root = $("confirmList");
+    root.innerHTML = "";
+    cards.forEach((card, i) => {
+      const d = state.decisions[card.card_id] || { decision: "" };
+      const wrap = document.createElement("div");
+      wrap.className = "item";
+      wrap.innerHTML = `<b>${i + 1}/${cards.length} [${escapeHtml(card.type)}] ${escapeHtml(card.title)}</b>
+        <div class="mut">When: ${escapeHtml(card.when || "")}</div>
+        <div>Do: ${escapeHtml(d.instruction || card.instruction || "")}</div>
+        <div class="actions"></div>
+        <div class="edit hidden" style="margin-top:8px">
+          <label class="mut">When</label>
+          <input type="text" data-edit="when" value="${escapeHtml(d.when || card.when || "")}">
+          <label class="mut" style="display:block;margin-top:6px">Instruction</label>
+          <input type="text" data-edit="instruction" value="${escapeHtml(d.instruction || card.instruction || "")}">
+        </div>`;
+      const actions = wrap.querySelector(".actions");
+      ["keep", "delete", "edit"].forEach((dec) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = dec;
+        b.setAttribute("aria-pressed", d.decision === dec ? "true" : "false");
+        b.onclick = () => {
+          state.decisions[card.card_id] = {
+            decision: dec,
+            when: wrap.querySelector('[data-edit="when"]').value.trim() || card.when,
+            instruction: wrap.querySelector('[data-edit="instruction"]').value.trim() || card.instruction,
+          };
+          wrap.querySelector(".edit").classList.toggle("hidden", dec !== "edit");
+          persist();
+          buildConfirm();
+        };
+        actions.appendChild(b);
+      });
+      wrap.querySelectorAll("[data-edit]").forEach((inp) => {
+        inp.oninput = () => {
+          const curD = state.decisions[card.card_id] || { decision: "edit" };
+          curD[inp.dataset.edit] = inp.value;
+          state.decisions[card.card_id] = curD;
+          persist();
+        };
+      });
+      if (d.decision === "edit") wrap.querySelector(".edit").classList.remove("hidden");
+      root.appendChild(wrap);
+    });
+    progress();
+  }
+
+  $("confirmDone").onclick = () => {
+    const missing = cards.filter((c) => !state.decisions[c.card_id] || !state.decisions[c.card_id].decision);
+    if (missing.length) {
+      alert("Keep, delete, or edit every item first.");
+      return;
+    }
+    show("stageConfirm", false);
+    buildChoose();
+    show("stageChoose", true);
+    setPhase("Choose a set");
+    persist();
+  };
+
+  function buildChoose() {
+    const root = $("sets");
+    root.innerHTML = "";
+    const meta = Object.fromEntries(key.cards.map((c) => [c.card_id, c]));
+    ["X", "Y"].forEach((letter) => {
+      const method = key.sets[letter];
+      const box = document.createElement("div");
+      box.className = "set";
+      box.innerHTML = `<h3>Set ${letter}</h3>`;
+      cards.forEach((card) => {
+        if (meta[card.card_id].method !== method) return;
+        const dec = state.decisions[card.card_id] || {};
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `<b>[${escapeHtml(card.type)}] ${escapeHtml(card.title)}</b>
+          <div class="mut">${escapeHtml(dec.instruction || card.instruction)} · (${escapeHtml(dec.decision || "")})</div>`;
+        box.appendChild(div);
+      });
+      root.appendChild(box);
+    });
+    const pickRow = $("pickRow");
+    pickRow.innerHTML = "";
+    ["x", "y", "same", "neither"].forEach((v) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = v;
+      b.setAttribute("aria-pressed", state.choice === v ? "true" : "false");
+      b.onclick = () => {
+        state.choice = v;
+        pickRow.querySelectorAll("button").forEach((bb) => bb.setAttribute("aria-pressed", bb.textContent === v ? "true" : "false"));
+        persist();
+      };
+      pickRow.appendChild(b);
+    });
+    $("reason2").value = state.choiceReason || "";
+    $("comment2").value = state.comments || "";
+    progress();
+  }
+
+  $("reason2").oninput = () => { state.choiceReason = $("reason2").value; persist(); };
+  $("comment2").oninput = () => { state.comments = $("comment2").value; persist(); };
+
+  function downloadResults() {
+    const out = {
+      version: 1,
+      participant: key.participant || "",
+      order: state.order,
+      stage1: state.stage1,
+      decisions: state.decisions,
+      choice: { pick: state.choice, reason: state.choiceReason || "", comments: state.comments || "" }
+    };
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: "application/json" }));
+    a.download = "web_results.json";
+    a.click();
+  }
+
+  $("finishBtn").onclick = () => {
+    if (!state.choice) { alert("Pick x, y, same or neither."); return; }
+    state.choiceReason = $("reason2").value.trim();
+    state.comments = $("comment2").value.trim();
+    downloadResults();
+    show("stageChoose", false);
+    show("doneSec", true);
+    setPhase("Save");
+    persist();
+  };
+
+  const PHASES = ["Load", "Compare", "Keep or delete", "Choose a set", "Save"];
+  function setPhase(name) {
+    const at = PHASES.indexOf(name);
+    PHASES.forEach((n, i) => {
+      const el = $("p" + i);
+      el.className = "pill" + (i < at ? " done" : i === at ? " on" : "");
+    });
+  }
+  setPhase("Load");
+
+  if (restore()) {
+    updateLoadStatus();
+    $("phase").textContent = "Your earlier choices were restored. Press Start to continue.";
+  }
+})();
+</script>
+</body>
+</html>

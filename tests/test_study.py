@@ -318,6 +318,30 @@ class AnswerStage(unittest.TestCase):
         self.assertIn("study-web", out)
         self.assertIn("web_session.json", out)
 
+    def test_web_import_gives_the_same_files_as_the_terminal_steps(self):
+        run(study.answers, folder=self.folder, tasks=self.tasks, n=2, model=None, demo=True)
+        key = json.loads((self.folder / "key.share.json").read_text())
+        cards = json.loads((self.folder / "cards.local.json").read_text())
+        results = {"participant": key["participant"], "order": {"T1": ["A", "B", "C"], "T2": ["B", "C", "A"]},
+                   "stage1": {"T1": {"best": "B", "worst": "A", "result": "", "clarity": "slight", "reason": "r"},
+                              "T2": {"best": "", "worst": "", "result": "tie", "clarity": "", "reason": ""}},
+                   "decisions": {c["card_id"]: {"decision": "keep"} for c in cards},
+                   "choice": {"pick": "y", "reason": "better start", "comments": ""}}
+        results["decisions"][cards[0]["card_id"]] = {"decision": "edit", "when": "w2", "instruction": "i2"}
+        (self.folder / "web_results.json").write_text(json.dumps(results))
+        out = run(study.web_import, folder=self.folder, results=None)
+        self.assertEqual([r["result"] for r in rows(self.folder / "compare.share.csv")], ["", "tie"])
+        self.assertEqual(rows(self.folder / "compare.share.csv")[0]["clarity"], "slight")
+        self.assertEqual(rows(self.folder / "choice.share.csv")[0]["chosen_method"], key["sets"]["Y"])
+        self.assertIn("Set X =", out)
+        self.assertIn("edit", [r["decision"] for r in rows(self.folder / "decisions.share.csv")])
+        run(study.export, folder=self.folder)
+        run(study.bundle, folder=self.folder)
+        results["stage1"]["T2"] = {}
+        (self.folder / "web_results.json").write_text(json.dumps(results))
+        with self.assertRaises(ValueError):
+            run(study.web_import, folder=self.folder, results=None)
+
     def test_optional_checklist_never_changes_the_ranking(self):
         run(study.answers, folder=self.folder, tasks=self.tasks, n=1, model=None, demo=True)
         with feed("one", "", "x", "y", "slight", "ok", "", "none"):   # checklist; X best, Y worst, clarity, reason, note; "none meet"
@@ -399,6 +423,38 @@ class AnswerStage(unittest.TestCase):
         with feed("same", "no difference", ""):
             run(study.choose, folder=self.folder)
         self.assertEqual(rows(self.folder / "choice.share.csv")[0]["chosen_method"], "same")
+
+
+class CodexStudyFlow(unittest.TestCase):
+    def test_codex_history_routes_generation_and_answers_to_same_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sample = root / "history.json"
+            tasks = root / "tasks.json"
+            folder = root / "run"
+            with mock.patch.object(study, "load_turns", return_value=[Turn(1), Turn(2)]):
+                run(study.prepare, codex_logs=root, output=sample, max_messages=48,
+                    days=7, exclude_recent_days=0)
+            self.assertEqual(study.read_json(sample)["engine"], "codex")
+            with self.assertRaisesRegex(ValueError, "--confirm-reviewed"):
+                run(study.generate, history=sample, folder=folder, demo=False, model=None,
+                    confirm_reviewed=False)
+            responses = [json.dumps(study.demo_response(stage))
+                         for stage in ("direct", "observations", "structured")]
+            with mock.patch.object(study, "run_codex", side_effect=responses + ["Answer"] * 3) as codex, \
+                    mock.patch.object(study, "run_claude") as claude:
+                run(study.generate, history=sample, folder=folder, demo=False, model="custom-codex",
+                    confirm_reviewed=True)
+                study.save_json(tasks, study.COMMON_TASKS[:1])
+                with self.assertRaisesRegex(ValueError, "custom-codex"):
+                    run(study.answers, folder=folder, tasks=tasks, n=1, model="another-model", demo=False)
+                run(study.answers, folder=folder, tasks=tasks, n=1, model=None, demo=False)
+                self.assertEqual(codex.call_count, 6)
+                self.assertEqual({call.args[1] for call in codex.call_args_list}, {"custom-codex"})
+                claude.assert_not_called()
+            self.assertEqual(study.read_json(folder / "key.share.json")["engine"], "codex")
+            answers = study.read_json(folder / "eval_answers.local.json")
+            self.assertEqual(set(answers[0]["answers"]), {"A", "B", "C"})
 
 
 class DayTurn:
