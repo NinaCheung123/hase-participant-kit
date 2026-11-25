@@ -19,7 +19,7 @@ from pathlib import Path
 import study
 
 PAGE = Path(__file__).resolve().parent / "study-web" / "index.html"
-UPLOAD_URL = "https://drive.switch.ch/index.php/s/DpdfHjo9pmGMpdJ"
+UPLOAD_URL = "https://drive.switch.ch/index.php/s/xo3xsNo8Hstqqp8"
 
 
 class ThreadOutput(io.TextIOBase):

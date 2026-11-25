@@ -39,7 +39,7 @@ Your browser opens a page that runs only on your computer (address `127.0.0.1`, 
 3. **Compare answers.** For each task, pick the answer you would most and least like to receive, or say you cannot tell. Then say what made the difference and why in one line.
 4. **Your skills.** Now you see the suggestions for the first time: keep, edit or delete each one, and answer two short questions.
 5. **Choose a set.** Which of the two sets would you keep and build on, and why.
-6. **Done.** The page shows which method made which set and where your files are. Upload `my-study/study_files.zip` at https://drive.switch.ch/index.php/s/DpdfHjo9pmGMpdJ (no login).
+6. **Done.** The page shows which method made which set and where your files are. Upload `my-study/study_files.zip` at https://drive.switch.ch/index.php/s/xo3xsNo8Hstqqp8 (no login).
 
 If you close the page or something stops, run the same command again: your progress is kept.
 

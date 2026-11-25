@@ -24,7 +24,7 @@ Read the study consent form first.
    the folder that contains it, for example:  python3 study.py web --codex-logs ~/.codex
 
 3. At the end, upload only my-study/study_files.zip at
-   https://drive.switch.ch/index.php/s/DpdfHjo9pmGMpdJ (no login needed).
+   https://drive.switch.ch/index.php/s/xo3xsNo8Hstqqp8 (no login needed).
    Your messages, tasks, answers and skill texts stay on your computer.
 
 If the page closes or something stops, run the same command again; your progress is kept.

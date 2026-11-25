@@ -888,7 +888,7 @@ def bundle(args):
             archive.write(folder / name, name)
     print(f"Wrote {out} with: {', '.join(needed)}.")
     print("Open each file first and delete any row you do not want to share, then run this command again. "
-          "Upload the zip at https://drive.switch.ch/index.php/s/DpdfHjo9pmGMpdJ (no login needed; the file is named with your random participant code).")
+          "Upload the zip at https://drive.switch.ch/index.php/s/xo3xsNo8Hstqqp8 (no login needed; the file is named with your random participant code).")
 
 
 def ask(args):
