@@ -10,6 +10,21 @@ A *skill* is a short, reusable instruction for how an assistant should handle on
 
 Download it from https://github.com/NinaCheung123/hase-participant-kit (green Code button, Download ZIP, unzip), or `git clone https://github.com/NinaCheung123/hase-participant-kit.git`. The source is public, so you can read exactly what it does. Open a terminal in the folder that contains `study.py`.
 
+## What the code does with your history
+
+You are letting a program read your AI history, so here is exactly what it does. All of it is in three files you can read: `study.py`, `webapp.py` and `context_user/sources.py`.
+
+| Step | What happens | Where |
+|---|---|---|
+| Read | Reads the log files your AI tool already keeps on your computer: `~/.claude/projects` (Claude Code) or `~/.codex/sessions` (Codex). Read only; it never changes them. | your computer |
+| Pick | Keeps only messages **you typed**, from about 5 days. For short corrections such as "shorter", it also keeps the last 300 characters of the assistant's reply before them. No other assistant text, no files, no code output. | your computer |
+| Filter | Masks links, file paths, emails and long numbers; drops pasted blocks and messages on sensitive topics. | your computer |
+| You decide | Shows you every picked message and own-chat task. Only what you leave ticked can be sent. | your computer |
+| Send | Sends the approved messages to **your own** account through your own `claude` or `codex` command-line tool, with its tools, web search and file access switched off, and without saving a chat. This is the only time anything leaves your computer. | your AI account |
+| Return | Writes `study_files.zip` with your choices and short reasons only. The program never uploads anything; you upload the zip yourself. | your computer → you upload it |
+
+The program uses no network library at all. It starts only two outside programs: your `claude` or `codex` tool, and your system's "open folder" command. The browser page is served from your own computer (`127.0.0.1`) with a random password, so other websites cannot reach it. Everything it creates stays in this folder; delete the folder to remove all of it.
+
 ## Recommended: do everything in your browser
 
 ```sh
