@@ -17,9 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from context_user.detect import own_words
-from context_user.sources import (CLAUDE_DIR, CODEX_DIR, CURSOR_TRANSCRIPTS_DIR,
-                                  read_chat_export, read_claude, read_codex,
-                                  read_cursor_transcripts)
+from context_user.sources import CLAUDE_DIR, CODEX_DIR, read_claude, read_codex
 
 RECOMMENDED_TURNS = 48   # a recommendation, not a limit: enough for patterns, cheap to run
 MAX_TURNS = 150          # safety ceiling so one run cannot use up a usage allowance
@@ -91,10 +89,6 @@ def read_json(path):
 
 
 def load_turns(args):
-    if getattr(args, "export", None):
-        return read_chat_export(args.export)[0]
-    if getattr(args, "cursor_logs", None):
-        return read_cursor_transcripts(args.cursor_logs)
     if getattr(args, "codex_logs", None):
         return read_codex(args.codex_logs)
     return read_claude(args.claude_logs)
@@ -150,7 +144,7 @@ def prepare(args):
         candidates.setdefault((timestamp.replace(second=0, microsecond=0), text), (
             timestamp, (turn.source, turn.session), text[:TEXT_CHARS], prev))
     if not candidates:
-        raise ValueError("No dated user messages found. Check your export or Claude Code folder.")
+        raise ValueError("No dated user messages found. Check your Claude Code or Codex logs.")
     ordered = sorted(candidates.values())
     latest = ordered[-1][0]
     end = latest - timedelta(days=getattr(args, "exclude_recent_days", 0))
@@ -854,7 +848,7 @@ def tasks(args):
     if getattr(args, "no_replay", False):
         print("Replay tasks skipped (--no-replay).")
     else:
-        has_source = any(getattr(args, k, None) for k in ("export", "cursor_logs", "codex_logs", "claude_logs"))
+        has_source = any(getattr(args, k, None) for k in ("codex_logs", "claude_logs"))
         try:
             turns = [t for t in load_turns(args) if t.ts is not None] if has_source else []
         except (OSError, ValueError, KeyError):
@@ -1119,10 +1113,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     prep = commands.add_parser("prepare", help="select recent user messages locally")
     source = prep.add_mutually_exclusive_group(required=True)
-    source.add_argument("--export", type=Path, help="unpacked conversations.json (Claude.ai or ChatGPT)")
-    source.add_argument("--claude-logs", nargs="?", const=CLAUDE_DIR, type=Path)
-    source.add_argument("--cursor-logs", nargs="?", const=CURSOR_TRANSCRIPTS_DIR, type=Path,
-                        help="Cursor agent transcripts (~/.cursor/projects)")
+    source.add_argument("--claude-logs", nargs="?", const=CLAUDE_DIR, type=Path,
+                        help="Claude Code logs (~/.claude/projects)")
     source.add_argument("--codex-logs", nargs="?", const=CODEX_DIR, type=Path,
                         help="Codex rollout logs (~/.codex/sessions)")
     prep.add_argument("--days", type=int, default=30,
@@ -1139,9 +1131,7 @@ def main():
     prep.set_defaults(handler=prepare)
     task_cmd = commands.add_parser("tasks", help="write the test tasks: common tasks plus up to two of your recent chats")
     tsource = task_cmd.add_mutually_exclusive_group(required=False)
-    tsource.add_argument("--export", type=Path, help="unpacked conversations.json (Claude.ai or ChatGPT)")
     tsource.add_argument("--claude-logs", nargs="?", const=CLAUDE_DIR, type=Path)
-    tsource.add_argument("--cursor-logs", nargs="?", const=CURSOR_TRANSCRIPTS_DIR, type=Path)
     tsource.add_argument("--codex-logs", nargs="?", const=CODEX_DIR, type=Path)
     task_cmd.add_argument("--days", type=int, default=14,
                           help="test window: replay tasks come from the most recent N days (default 14; choose your own)")

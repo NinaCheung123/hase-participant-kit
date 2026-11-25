@@ -6,7 +6,7 @@ You need a terminal, Python 3, and the CLI for the AI you use. With Codex histor
 
 ## Get the kit
 
-Unzip the kit provided by the organiser. Open a terminal in the folder directly containing `study.py`, and run the commands one at a time.
+Download it from https://github.com/NinaCheung123/hase-participant-kit (green Code button, then Download ZIP, then unzip), or run `git clone https://github.com/NinaCheung123/hase-participant-kit.git`. The source is public, so you can read exactly what it does before running it. Open a terminal in the folder directly containing `study.py`, and run the commands one at a time.
 
 **Using Codex?** Follow [Codex quick start](Codex_Quick_Start.txt) for local setup, sample review and generation with your own Codex login.
 
