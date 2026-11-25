@@ -676,8 +676,8 @@ def choose(args):
     if "choice" not in state:
         cards = {c["card_id"]: c for c in read_cards(folder)}
         key = read_json(folder / "key.share.json")
-        print("These are the two sets of skills and principles generated from your messages, made by two "
-              "different methods and shown without saying which is which.\n"
+        print("These are the same items you just judged one by one, now split into the two groups they came from. "
+              "Each group was made by a different method, shown without saying which is which.\n"
               "Imagine you keep one set as the standing instructions your AI assistant carries into all your future "
               "work, and that it grows over time. Which set is the better starting point: the one that sounds most "
               "like you, is most useful, and is worth building on? Your answer helps us compare the two methods.")

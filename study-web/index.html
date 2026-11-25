@@ -331,7 +331,7 @@ function confirm() {
       <h1>The skills written from your messages</h1>
       <p>You now see them for the first time. They were the guidance behind some of the answers you just compared. Keep
       each one that is really you, delete the rest, or edit one so it fits. A short note on what is right or wrong
-      about each helps us most.</p>
+      about each helps us most. In the next step you will see the same items again, split into the two groups they came from.</p>
       ${S.cards.map((c, i) => { const e = ui.dec[c.card_id] || {}; return `
         <div class="card">
           <div class="row spread"><b>${i + 1}. ${esc(c.title)}</b><span class="badge">${esc(c.type)}</span></div>
@@ -385,7 +385,8 @@ function choose() {
   $("view").innerHTML = `
     <div class="panel">
       <h1>Which set is the better one to keep?</h1>
-      <p>These are the two sets, made by two different methods and shown without saying which is which. Imagine you keep
+      <p>These are the same items you just judged one by one, now split into the two groups they came from. Each group was
+      made by a different method, shown without saying which is which. Imagine you keep
       one set as the standing instructions your AI assistant carries into all your future work, and it grows over time.
       Which is the better starting point: the one that sounds most like you, is most useful, and is worth building on?</p>
       <div class="sets">${["X", "Y"].map((L) => `<div class="card"><h2>Set ${L}</h2><ul>${S.sets[L].map((c) =>
