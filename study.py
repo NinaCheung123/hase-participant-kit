@@ -605,9 +605,11 @@ def confirm(args):
     state = (read_json(state_path) if state_path.exists()
              else {"participant": read_json(folder / "key.share.json")["participant"], "decisions": {}, "added": []})
     if any(c["card_id"] not in state["decisions"] for c in cards):
-        print("Now you see, for the first time, the skills and principles generated from your messages. "
-              "These were the guidance behind the answers you just compared. Keep each one that is really you "
-              "and delete the rest (type e to edit one first).")
+        print(f"Now you see, for the first time, the {len(cards)} skills and principles generated from your messages: "
+              "both methods' items, mixed together. They were the guidance behind the answers you just compared.\n"
+              "Judge each one on its own: keep it if it describes how you work and you would want an assistant to "
+              "follow it from now on; otherwise delete it (type e to edit one first). If two items say much the same, "
+              "judge each separately and keep both if both are true. Do not try to guess which method wrote it.")
     for i, card in enumerate(cards, start=1):
         card_id = card["card_id"]
         if card_id in state["decisions"]:
@@ -793,7 +795,7 @@ COMMON_TASKS = [
 COHORT_TASK = {"task_id": "T4", "kind": "common", "opening_prompt": (
     "Based only on the excerpt below, answer: (1) What did the study actually measure? (2) What is one thing it "
     "does not show? (3) A manager reads this and says \"so AI tools are bad for experienced developers.\" Is that "
-    "a fair reading? Why?\n\nExcerpt: \"In a randomised study with 16 experienced open-source developers, "
+    "a fair reading? Why? Answer in at most 150 words.\n\nExcerpt: \"In a randomised study with 16 experienced open-source developers, "
     "participants completed tasks from their own projects. With early-2025 AI tools, they took 19% longer on "
     "average than without. Before the study, they had expected AI to speed them up by 24%, and after the study "
     "they still believed it had sped them up by 20%.\""),
@@ -803,7 +805,7 @@ COHORT_TASK = {"task_id": "T4", "kind": "common", "opening_prompt": (
 CONTROL_TASK = {"task_id": "C1", "kind": "control", "opening_prompt": "What is 17 times 23? Give the number only.",
                 "rubric": "391. All conditions should tie; if not, something other than the skills drives your picks."}
 MAX_REPLAY = 2
-REPLAY_WORDS = "At most 300 words."
+REPLAY_WORDS = "At most 150 words."
 
 
 SENSITIVE = {   # general rules, English / Chinese / German; incomplete by design (names and details are not caught)

@@ -9,7 +9,7 @@ The organiser sets these tasks. Participants do not choose or edit them (they ma
 3. **The surface prompt is identical in all three conditions** (none, direct set, structured set). Only a text prefix with the items differs.
 4. **The participant judges which answer they would rather receive.** No rubric or checklist is shown, so nothing steers the judgement.
 5. **Ties and skips are allowed.** Common tasks give personal skills little to add, so ties are expected and reported as a finding.
-6. **Word limits** keep answers short (T1 180, T2 150, T3 200, replay and own question 300). T4 has no limit.
+6. **Word limits** keep answers short (T1 180, T2 150, T3 200, T4 150, replay and own question 150). Each task shows three answers, so this keeps reading to about 450–600 words per task.
 
 ## Tasks
 
@@ -37,11 +37,11 @@ Design note: Engages with the real tension (an evaluation everyone passes cannot
 
 ### T4 (HASE cohort; `--no-cohort-task` leaves it out)
 
-> Based only on the excerpt below, answer: (1) What did the study actually measure? (2) What is one thing it does not show? (3) A manager reads this and says "so AI tools are bad for experienced developers." Is that a fair reading? Why?
+> Based only on the excerpt below, answer: (1) What did the study actually measure? (2) What is one thing it does not show? (3) A manager reads this and says "so AI tools are bad for experienced developers." Is that a fair reading? Why? Answer in at most 150 words.
 > 
 > Excerpt: "In a randomised study with 16 experienced open-source developers, participants completed tasks from their own projects. With early-2025 AI tools, they took 19% longer on average than without. Before the study, they had expected AI to speed them up by 24%, and after the study they still believed it had sped them up by 20%."
 
-Design note: Measured = task completion time on their own projects; not shown = anything beyond this tool generation, these developers or these tasks; the manager's reading is too strong and the belief-measurement gap is named.
+Design note: Measured = task completion time on their own projects; not shown = anything beyond this tool generation, these developers or these tasks; the manager's reading is too strong and the belief-measurement gap is named; within 150 words.
 
 ### C1 (control, off by default; `tasks --control`)
 

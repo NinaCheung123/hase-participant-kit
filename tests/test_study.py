@@ -374,11 +374,11 @@ class AnswerStage(unittest.TestCase):
             self.assertTrue(study.HARNESS_TEXT.search(text))
         self.assertFalse(study.HARNESS_TEXT.search("can you find me the files"))
 
-    def test_word_limits_kept_except_t4(self):
+    def test_every_common_task_has_a_word_limit(self):
         texts = {x["task_id"]: x["opening_prompt"] for x in study.COMMON_TASKS + [study.COHORT_TASK]}
         self.assertIn("At most 180 words", texts["T1"])
         self.assertIn("at most 200 words", texts["T3"])
-        self.assertNotIn("words", texts["T4"])
+        self.assertIn("at most 150 words", texts["T4"])
         self.assertIn("At most 150 words", texts["T2"])
 
     def test_method_with_no_items_drops_that_condition(self):

@@ -329,9 +329,13 @@ function confirm() {
   $("view").innerHTML = `
     <div class="panel">
       <h1>The skills written from your messages</h1>
-      <p>You now see them for the first time. They were the guidance behind some of the answers you just compared. Keep
-      each one that is really you, delete the rest, or edit one so it fits. A short note on what is right or wrong
-      about each helps us most. In the next step you will see the same items again, split into the two groups they came from.</p>
+      <p>You now see them for the first time: ${S.cards.length} items, written by both methods and mixed together. They were
+      the guidance behind the answers you just compared.</p>
+      <p><b>How to decide:</b> judge each item on its own. Keep it if it describes how you work and you would want an
+      assistant to follow it from now on; delete it if not, or edit it so it fits. If two items say much the same,
+      judge each separately and keep both if both are true. Do not try to guess which method wrote it.</p>
+      <p class="small mut">A short note on what is right or wrong about each helps us most. In the next step you see the
+      same items again, split into the two groups they came from.</p>
       ${S.cards.map((c, i) => { const e = ui.dec[c.card_id] || {}; return `
         <div class="card">
           <div class="row spread"><b>${i + 1}. ${esc(c.title)}</b><span class="badge">${esc(c.type)}</span></div>
