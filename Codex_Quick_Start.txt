@@ -1,0 +1,42 @@
+HASE study | Codex quick start
+
+Use this guide if you want Codex to generate suggestions from your Codex chats.
+You need Python 3 and a current Codex CLI signed in to your own ChatGPT account.
+Before using real history, read the study consent information for the Codex route.
+
+1. Download the kit (https://github.com/NinaCheung123/hase-participant-kit, green Code button, Download ZIP) and unzip it.
+   Open Terminal and go into the folder containing study.py. On a Mac, if you
+   unzipped the kit in Downloads, run:
+
+   cd ~/Downloads/hase-participant-kit-main
+   ls study.py
+   codex login status
+
+   If you are signed out, run codex login.
+
+2. Prepare your Codex history and tasks. These steps run locally.
+
+   python3 study.py prepare --codex-logs
+   python3 study.py tasks --codex-logs
+
+   Open history.review.json and tasks.review.json. Remove messages and personal
+   replay tasks you do not want sent to Codex. Keep the history file's engine
+   field and messages list. Leave the common tasks in place.
+
+3. Generate the two sets of suggestions and the task answers. Both commands
+   use your Codex account. Run them one at a time.
+
+   python3 study.py generate --confirm-reviewed
+   python3 study.py answers
+
+4. Compare the answers, then review the suggestions and choose a set.
+
+   python3 study.py compare
+   python3 study.py confirm
+   python3 study.py choose
+   python3 study.py export
+   python3 study.py bundle
+
+5. Review the four files in my-study/study_files.zip. If you submit results,
+   upload only that ZIP at https://drive.switch.ch/index.php/s/DpdfHjo9pmGMpdJ
+   (no login needed). Keep your chat samples, task text, answers and skill files local.
