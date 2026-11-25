@@ -63,7 +63,12 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 14px 0; }
   .answer { border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-width: 0; }
   .answer .head { padding: 8px 12px; border-bottom: 1px solid var(--line); font-weight: 600; }
-  .answer .body { padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; flex: 1; max-height: 520px; overflow: auto; }
+  .answer .body { padding: 12px; overflow-wrap: anywhere; flex: 1; max-height: 520px; overflow: auto; }
+  .answer .body p { margin: 0 0 8px; }
+  .answer .body ul, .answer .body ol { margin: 0 0 8px; padding-left: 20px; }
+  .answer .body li { margin-bottom: 3px; }
+  .answer .body .h { font-weight: 700; margin: 10px 0 4px; }
+  .answer .body .h:first-child { margin-top: 0; }
   .answer .foot { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; gap: 8px; }
   .card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
   .badge { font-size: 12px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--mut); }
@@ -106,6 +111,31 @@ const ORDER = ["review", "start", "compare", "confirm", "choose", "done"];
 let S = null, poll = null, ui = {};
 
 const $ = (id) => document.getElementById(id);
+/* Answers come back as Markdown. Show bold, headings and lists instead of ** and -. Text is escaped first,
+   so nothing in an answer can become HTML. */
+function md(text) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g, "$1<i>$2</i>")
+                              .replace(/`([^`]+)`/g, "<code>$1</code>");
+  const out = []; let list = null, para = [];
+  const flushPara = () => { if (para.length) { out.push(`<p>${para.map(inline).join("<br>")}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i)}</li>`).join("")}</${list.tag}>`); list = null; } };
+  for (const raw of String(text ?? "").split("\n")) {
+    const line = raw.trimEnd();
+    let m;
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+    if ((m = line.match(/^\s*#{1,6}\s+(.*)$/)) || (m = line.match(/^\s*\*\*([^*]+)\*\*:?\s*$/))) {
+      flushPara(); flushList(); out.push(`<div class="h">${inline(m[1])}</div>`); continue; }
+    const bullet = line.match(/^\s*[-*•]\s+(.*)$/), num = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (bullet || num) {
+      flushPara(); const tag = bullet ? "ul" : "ol";
+      if (!list || list.tag !== tag) { flushList(); list = {tag, items: []}; }
+      list.items.push((bullet || num)[1]); continue; }
+    if (list && /^\s{2,}/.test(raw)) { list.items[list.items.length - 1] += " " + line.trim(); continue; }
+    flushList(); para.push(line);
+  }
+  flushPara(); flushList();
+  return out.join("");
+}
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
 async function api(path, body) {
@@ -237,7 +267,7 @@ function compare() {
       Pick the answer you would most like to receive${two ? "" : ", and the one you would least like"}.</p>
       <div class="task">${esc(t.task)}</div>
       <div class="grid">${t.answers.map((a) => `
-        <div class="answer"><div class="head">Answer ${a.slot}</div><div class="body">${esc(a.text)}</div>
+        <div class="answer"><div class="head">Answer ${a.slot}</div><div class="body">${md(a.text)}</div>
         <div class="foot"><button class="chip best ${d.best === a.slot ? "on" : ""}" data-best="${a.slot}">Best</button>
         ${two ? "" : `<button class="chip worst ${d.worst === a.slot ? "on" : ""}" data-worst="${a.slot}">Worst</button>`}</div></div>`).join("")}
       </div>
