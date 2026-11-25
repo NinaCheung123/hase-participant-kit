@@ -338,43 +338,6 @@ class AnswerStage(unittest.TestCase):
         self.assertEqual(names, sorted(study.SHARE_FILES))
         self.assertFalse(any(".local" in n for n in names))
 
-    def test_web_writes_session_without_opening_browser(self):
-        run(study.answers, folder=self.folder, tasks=self.tasks, n=2, model=None, demo=True)
-        out = run(study.web, folder=self.folder, no_open=True)
-        session = self.folder / "web_session.json"
-        self.assertTrue(session.exists())
-        data = json.loads(session.read_text())
-        self.assertEqual(set(data), {"answers", "cards", "key"})
-        self.assertEqual(len(data["answers"]), 2)
-        self.assertTrue(data["cards"])
-        self.assertIn("participant", data["key"])
-        self.assertIn("study-web", out)
-        self.assertIn("web_session.json", out)
-
-    def test_web_import_gives_the_same_files_as_the_terminal_steps(self):
-        run(study.answers, folder=self.folder, tasks=self.tasks, n=2, model=None, demo=True)
-        key = json.loads((self.folder / "key.share.json").read_text())
-        cards = json.loads((self.folder / "cards.local.json").read_text())
-        results = {"participant": key["participant"], "order": {"T1": ["A", "B", "C"], "T2": ["B", "C", "A"]},
-                   "stage1": {"T1": {"best": "B", "worst": "A", "result": "", "clarity": "slight", "reason": "r"},
-                              "T2": {"best": "", "worst": "", "result": "tie", "clarity": "", "reason": ""}},
-                   "decisions": {c["card_id"]: {"decision": "keep"} for c in cards},
-                   "choice": {"pick": "y", "reason": "better start", "comments": ""}}
-        results["decisions"][cards[0]["card_id"]] = {"decision": "edit", "when": "w2", "instruction": "i2"}
-        (self.folder / "web_results.json").write_text(json.dumps(results))
-        out = run(study.web_import, folder=self.folder, results=None)
-        self.assertEqual([r["result"] for r in rows(self.folder / "compare.share.csv")], ["", "tie"])
-        self.assertEqual(rows(self.folder / "compare.share.csv")[0]["clarity"], "slight")
-        self.assertEqual(rows(self.folder / "choice.share.csv")[0]["chosen_method"], key["sets"]["Y"])
-        self.assertIn("Set X =", out)
-        self.assertIn("edit", [r["decision"] for r in rows(self.folder / "decisions.share.csv")])
-        run(study.export, folder=self.folder)
-        run(study.bundle, folder=self.folder)
-        results["stage1"]["T2"] = {}
-        (self.folder / "web_results.json").write_text(json.dumps(results))
-        with self.assertRaises(ValueError):
-            run(study.web_import, folder=self.folder, results=None)
-
     def test_optional_checklist_never_changes_the_ranking(self):
         run(study.answers, folder=self.folder, tasks=self.tasks, n=1, model=None, demo=True)
         with feed("one", "", "x", "y", "slight", "1", "ok", "none"):   # checklist; X best, Y worst, clarity, reason, note; "none meet"
@@ -634,3 +597,104 @@ class CodexLogs(unittest.TestCase):
                 line("user", "Real opening message"), line("user", "shorter")]) + "\n")
             turns = list(read_codex(Path(tmp)))
         self.assertEqual([(t.index, t.text) for t in turns], [(0, "Real opening message"), (1, "shorter")])
+
+
+class WebApp(unittest.TestCase):
+    """The browser flow calls the same functions as the terminal and never shows the method before the choice."""
+
+    def setUp(self):
+        import webapp
+        self.webapp = webapp
+        self.dir = Path(tempfile.mkdtemp())
+        turns = [DayTurn(day, m, f"please keep it short, request {m} on day {day}", f"s{day % 6}")
+                 for day in range(45) for m in range(8)]
+        for day in (40, 42):                                   # two recent chats to offer as own-chat tasks
+            turns.append(DayTurn(day, 30, f"Explain option {day} to a new teammate in plain words, with one example "
+                                          "for each of the options we discussed", f"open{day}"))
+            turns[-1].index = 0
+        self.patch = mock.patch.object(study, "load_turns", lambda a: turns)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        self.app = webapp.App(self.dir, "my-study", engine="claude", source=self.dir)
+        self.app.ensure_inputs()
+
+    def fake_model(self, engine, prompt, model, system=None):
+        import re
+        rows_ = json.loads(prompt.split("History:\n", 1)[1].split("\nObservations:", 1)[0]) if "History:" in prompt else []
+        ids = [r["id"] for r in rows_]
+        if "Identify only explicit steering" in prompt:
+            return json.dumps([{"id": i, "rule": "short", "scope": "reusable"} for i in ids])
+        if rows_:
+            return json.dumps([{"title": f"Item {k}", "type": "principle" if k else "skill", "kind": "preference",
+                                "when": f"w{k}", "instruction": f"i{k}", "evidence": ids} for k in range(2)])
+        return "answer with guidance" if "Guidance you have loaded" in prompt else "plain answer"
+
+    def test_whole_flow_writes_the_same_share_files(self):
+        app = self.app
+        self.assertEqual(app.phase(), "review")
+        state = app.state()
+        self.assertTrue(state["days"] and state["common"])
+        with self.assertRaises(ValueError):
+            app.do_start({})                                    # nothing can be sent before the review
+        first = state["days"][0][0]["id"]
+        app.do_review({"remove_messages": [first], "remove_tasks": [], "own_question": "Plan my talk, see https://x.io"})
+        self.assertNotIn(first, [r["id"] for r in study.read_json(app.history)])
+        tasks_ = study.read_json(app.tasks)
+        self.assertEqual(tasks_[-1]["task_id"], "O1")
+        self.assertIn("[URL]", tasks_[-1]["opening_prompt"])
+        self.assertEqual(app.phase(), "start")
+        with mock.patch.object(study, "run_model", self.fake_model):
+            app.do_start({})
+            while app.job["running"]:
+                pass
+        self.assertEqual(app.job["error"], "")
+        self.assertEqual(app.phase(), "compare")
+        state = app.state()
+        text = json.dumps(state["tasks"]) + json.dumps(state["job"])
+        for secret in ('"A"', '"B"', '"C"', "direct", "structured", "rubric"):
+            self.assertNotIn(secret, text)                      # only slots X, Y, Z reach the browser
+        with self.assertRaisesRegex(ValueError, "why"):
+            app.do_compare({"task_id": "T1", "best": "X", "worst": "Y", "clarity": "clear", "tags": [], "reason": ""})
+        for task in state["tasks"]:
+            if task["task_id"] == "T2":
+                app.do_compare({"task_id": "T2", "result": "tie", "reason": "same"})
+            else:
+                app.do_compare({"task_id": task["task_id"], "best": "X", "worst": "Y", "clarity": "slight",
+                                "tags": ["accurate", "nonsense"], "reason": "more exact"})
+        r = rows(app.folder / "compare.share.csv")
+        self.assertEqual(r[0]["reason_tags"], "accurate")
+        self.assertEqual([x["result"] for x in r if x["task_id"] == "T2"], ["tie"])
+        self.assertEqual(app.phase(), "confirm")
+        cards = app.state()["cards"]
+        self.assertNotIn("method", json.dumps(cards))
+        decisions = {c["card_id"]: {"decision": "keep", "comment": "me"} for c in cards}
+        with self.assertRaisesRegex(ValueError, "closing questions"):
+            app.do_confirm({"decisions": decisions, "reflection": {"surprise": "x", "missing": ""}})
+        app.do_confirm({"decisions": decisions, "reflection": {"surprise": "x", "missing": "none"},
+                        "added": [{"title": "Mine", "type": "principle", "when": "w", "instruction": "i"}]})
+        self.assertEqual([d["comment"] for d in rows(app.folder / "decisions.share.csv")][:1], ["me"])
+        sets = app.state()["sets"]
+        self.assertEqual(set(sets), {"X", "Y"})
+        self.assertNotIn("direct", json.dumps(sets))
+        app.do_choose({"pick": "x", "reason": "closer", "comments": ""})
+        self.assertEqual(app.phase(), "done")
+        choice = rows(app.folder / "choice.share.csv")[0]
+        self.assertEqual((choice["surprise"], choice["missing"]), ("x", "none"))
+        import zipfile
+        names = sorted(zipfile.ZipFile(app.folder / "study_files.zip").namelist())
+        self.assertEqual(names, sorted(study.SHARE_FILES))
+        self.assertTrue((app.folder / "my-skills" / "principles.md").exists())
+
+    def test_server_needs_the_token(self):
+        import threading, urllib.request, urllib.error
+        _, server = self.webapp.serve(self.dir, "my-study", "claude", self.dir)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        page = urllib.request.urlopen(base + "/").read().decode()
+        token = page.split('const TOKEN = "')[1].split('"')[0]
+        with self.assertRaises(urllib.error.HTTPError):
+            urllib.request.urlopen(base + "/api/state")
+        req = urllib.request.Request(base + "/api/state", headers={"X-Study-Token": token})
+        self.assertEqual(json.loads(urllib.request.urlopen(req).read())["phase"], "review")
+        self.assertEqual(server.server_address[0], "127.0.0.1")

@@ -1,644 +1,414 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HASE study — judge in the browser</title>
+<title>HASE Skills Study</title>
 <style>
   :root {
-    --ink: #141414;
-    --mute: #5a5a5a;
-    --line: #d8d8d8;
-    --bg: #fafaf8;
-    --panel: #fff;
-    --soft: #f2f1ec;
-    --accent: #1f4d3a;
-    --warn: #8a3b2a;
+    --bg: #f7f6f2; --panel: #ffffff; --ink: #1d1d1b; --mut: #66655f; --line: #dddbd3; --soft: #efede6;
+    --accent: #1f5c4a; --accent-ink: #ffffff; --best: #1f6f43; --worst: #a33a2c; --warn-bg: #fbeee9;
+    --focus: #2f6fd6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614; --panel: #201f1d; --ink: #ecebe6; --mut: #a5a39b; --line: #3a3934; --soft: #2a2926;
+      --accent: #6fc1a2; --accent-ink: #10201a; --best: #79cf9d; --worst: #f08d7e; --warn-bg: #3a2521;
+      --focus: #8ab4ff;
+    }
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
-    font: 15px/1.5 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  }
-  header {
-    position: sticky; top: 0; z-index: 5;
-    background: rgba(250,250,248,.94);
-    backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--line);
-    padding: 10px 18px;
-    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-  }
-  header b { font: 700 13px/1.2 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
-  .bar { flex: 1; min-width: 120px; height: 6px; background: var(--soft); border-radius: 99px; overflow: hidden; }
-  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
-  .mut { color: var(--mute); font-size: 13px; }
-  main { max-width: 1120px; margin: 0 auto; padding: 22px 18px 88px; }
-  .panel {
-    border: 1px solid var(--line);
-    background: var(--panel);
-    padding: 18px 18px 16px;
-    margin-bottom: 14px;
-  }
-  h1 { font-size: 1.55rem; line-height: 1.25; margin: 0 0 8px; }
-  h2 { font: 700 13px/1.3 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 10px; }
-  p { margin: 0 0 12px; }
-  code { font: 12px/1.4 ui-monospace, Menlo, monospace; background: var(--soft); padding: 1px 5px; }
-  button, .file {
-    font: 600 13px/1.2 system-ui, sans-serif;
-    padding: 8px 12px;
-    border: 1px solid var(--ink);
-    background: var(--panel);
-    color: var(--ink);
-    cursor: pointer;
-  }
-  button.primary { background: var(--ink); color: #fff; }
-  button.accent { background: var(--accent); color: #fff; border-color: var(--accent); }
-  button[aria-pressed="true"] { background: var(--ink); color: #fff; }
-  button.w[aria-pressed="true"] { background: var(--warn); border-color: var(--warn); color: #fff; }
-  button:disabled { opacity: .4; cursor: not-allowed; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-  .task {
-    white-space: pre-wrap;
-    border: 1px solid var(--line);
-    background: var(--soft);
-    padding: 12px 14px;
-    margin: 10px 0 14px;
-  }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-  .card {
-    border: 1px solid var(--line);
-    background: #fff;
-    display: flex;
-    flex-direction: column;
-    min-height: 220px;
-  }
-  .card.best { border-width: 2px; border-color: var(--accent); }
-  .card.worst { border-style: dashed; border-color: var(--warn); }
-  .card .head {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--line);
-    font: 700 13px/1.2 system-ui, sans-serif;
-    display: flex; justify-content: space-between;
-  }
-  .card .body {
-    padding: 12px;
-    white-space: pre-wrap;
-    overflow: auto;
-    max-height: 42vh;
-    flex: 1;
-    font-size: 14px;
-  }
-  .card .foot {
-    padding: 8px 12px;
-    border-top: 1px solid var(--line);
-    display: flex; gap: 6px; flex-wrap: wrap;
-  }
-  input[type=text], textarea, select {
-    width: 100%;
-    font: inherit;
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    background: #fff;
-  }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line);
+           padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+  header b { letter-spacing: .06em; font-size: 13px; margin-right: 6px; }
+  .pill { font-size: 12.5px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--mut); }
+  .pill.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .pill.done { color: var(--accent); border-color: var(--accent); }
+  main { max-width: 1120px; margin: 0 auto; padding: 20px 16px 80px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  h1 { font-size: 24px; margin: 0 0 6px; line-height: 1.25; }
+  h2 { font-size: 18px; margin: 0 0 8px; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--mut); margin: 0 0 8px; }
+  p { margin: 0 0 10px; }
+  .mut { color: var(--mut); }
+  .small { font-size: 14px; }
+  .err { background: var(--warn-bg); border: 1px solid var(--worst); color: var(--ink); border-radius: 8px;
+         padding: 10px 14px; margin-bottom: 16px; }
+  button { font: inherit; font-size: 15px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+           color: var(--ink); padding: 8px 14px; cursor: pointer; }
+  button:hover { border-color: var(--ink); }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, label.msg:focus-within {
+    outline: 2px solid var(--focus); outline-offset: 2px; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; padding: 10px 18px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.chip { border-radius: 99px; padding: 5px 12px; font-size: 14px; }
+  button.chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  button.best.on { background: var(--best); color: #fff; border-color: var(--best); }
+  button.worst.on { background: var(--worst); color: #fff; border-color: var(--worst); }
+  input[type=text], textarea, select { font: inherit; font-size: 15px; width: 100%; padding: 8px 10px; border-radius: 8px;
+           border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  textarea { min-height: 64px; resize: vertical; }
+  label.field { display: block; font-size: 14px; color: var(--mut); margin: 12px 0 4px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .spread { justify-content: space-between; }
+  .day { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+  label.msg { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 8px 6px; border-radius: 6px; cursor: pointer; }
+  label.msg:hover { background: var(--soft); }
+  label.msg input { margin-top: 4px; width: 16px; height: 16px; }
+  label.msg.off .txt { text-decoration: line-through; color: var(--mut); }
+  .ai { display: block; font-size: 13px; color: var(--mut); margin-top: 2px; }
+  .task { background: var(--soft); border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 14px 0; }
+  .answer { border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-width: 0; }
+  .answer .head { padding: 8px 12px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  .answer .body { padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; flex: 1; max-height: 520px; overflow: auto; }
+  .answer .foot { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; gap: 8px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+  .badge { font-size: 12px; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--mut); }
+  .kv { margin: 6px 0 0; }
+  .kv b { color: var(--mut); font-weight: 600; margin-right: 4px; }
+  .sets { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 12px 0; }
+  .sets ul { margin: 0; padding-left: 18px; }
+  .sets li { margin-bottom: 8px; }
+  .status { font-size: 12px; color: var(--mut); }
+  pre.log { background: var(--soft); border-radius: 8px; padding: 10px; font-size: 12.5px; white-space: pre-wrap;
+            max-height: 260px; overflow: auto; }
+  .spinner { width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
+             animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .sticky { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line);
+            margin: 16px -20px -20px; padding: 12px 20px; border-radius: 0 0 10px 10px; }
   .hidden { display: none !important; }
-  .set { border: 1px solid var(--line); padding: 12px; margin: 10px 0; background: #fff; }
-  .set h3 { margin: 0 0 8px; font: 700 14px/1.2 system-ui, sans-serif; }
-  .item { border-top: 1px solid var(--line); padding: 10px 0; }
-  .item:first-of-type { border-top: 0; padding-top: 0; }
-  .item .actions { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
-  .steps {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin: 14px 0 4px;
-  }
-  @media (max-width: 700px) { .steps { grid-template-columns: 1fr 1fr; } }
-  .steps div {
-    border: 1px solid var(--line);
-    background: var(--soft);
-    padding: 10px;
-    font-size: 13px;
-  }
-  .steps b { display: block; font: 700 11px/1.2 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 4px; }
-  .note {
-    border-left: 3px solid var(--accent);
-    background: #eef5f1;
-    padding: 10px 12px;
-    margin: 12px 0;
-    font-size: 14px;
-  }
-  .err { color: var(--warn); font-size: 13px; margin-top: 8px; }
-  .pill { font: 600 12px/1 system-ui, sans-serif; padding: 5px 9px; border: 1px solid var(--line); border-radius: 99px; color: var(--mute); background: var(--panel); }
-  .pill.on { background: var(--ink); color: #fff; border-color: var(--ink); }
-  .pill.done { background: #eef5f1; color: var(--accent); border-color: var(--accent); }
-  button { border-radius: 6px; }
-  .big { font-size: 15px; padding: 11px 16px; }
-  ol.how { margin: 8px 0 14px 18px; padding: 0; } ol.how li { margin: 6px 0; }
+  a { color: var(--accent); }
+  code { font-size: 13px; background: var(--soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
 <header>
-  <b>HASE study</b>
-  <span class="pill" id="p0">Load</span><span class="pill" id="p1">1 Compare</span><span class="pill" id="p2">2 Keep or delete</span><span class="pill" id="p3">3 Choose a set</span><span class="pill" id="p4">Save</span>
-  <span id="phase" class="mut"></span>
-  <div class="bar"><i id="bar"></i></div>
-  <span id="count" class="mut"></span>
+  <b>HASE STUDY</b>
+  <span class="pill" data-p="review">1 Check what is sent</span>
+  <span class="pill" data-p="start">2 Generate</span>
+  <span class="pill" data-p="compare">3 Compare answers</span>
+  <span class="pill" data-p="confirm">4 Your skills</span>
+  <span class="pill" data-p="choose">5 Choose a set</span>
+  <span class="pill" data-p="done">6 Done</span>
 </header>
-
 <main>
-  <section id="setup" class="panel">
-    <h1>Judge your answers here</h1>
-    <p class="mut">Everything stays on your computer; nothing is uploaded. You do not type commands on this page.</p>
-    <ol class="how">
-      <li><b>Load</b> the file <code>web_session.json</code> (the terminal printed its path when you ran <code>python3 study.py web</code>).</li>
-      <li><b>Compare:</b> for each task, pick the answer you would rather receive and the one you would least like. The labels X, Y, Z do not say how an answer was written.</li>
-      <li><b>Keep or delete</b> each skill or principle the tool wrote from your messages.</li>
-      <li><b>Choose</b> which of the two sets is the better one to keep and build on.</li>
-      <li><b>Save:</b> the page gives you one file, <code>web_results.json</code>. Back in the terminal, run <code>python3 study.py web-import</code> and then <code>export</code> and <code>bundle</code>.</li>
-    </ol>
-    <div class="note">About 12 to 20 minutes. You can close the page and come back; your choices are kept in this browser.</div>
-
-    <h2>Load web_session.json</h2>
-    <input type="file" id="sessionFile" accept=".json,application/json">
-    <div class="hidden"><input type="file" id="answersFile"><input type="file" id="cardsFile"><input type="file" id="keyFile"></div>
-    <p id="loadStatus" class="mut" style="margin-top:10px"></p>
-    <div class="row" style="margin-top:14px">
-      <button type="button" class="primary big" id="startBtn" disabled>Start</button>
-    </div>
-    <p id="setupErr" class="err"></p>
-  </section>
-
-  <section id="stageCompare" class="hidden">
-    <div class="panel">
-      <h2>Compare answers (blind)</h2>
-      <p class="mut">All answers are to the same task. Pick the one you would most like to receive (Best) and the one you would least like (Worst). If you cannot tell, press Tie; if the task itself is unfair or unclear, press Skip. Nothing is graded.</p>
-      <div class="task" id="taskText"></div>
-      <div class="grid" id="cards"></div>
-      <div class="row">
-        <span class="mut">How clear was the difference? <b>clear</b> = obvious, <b>slight</b> = small, <b>forced</b> = you had to pick but could hardly tell:</span>
-        <button type="button" data-clarity="clear">clear</button>
-        <button type="button" data-clarity="slight">slight</button>
-        <button type="button" data-clarity="forced">forced</button>
-      </div>
-      <div style="margin-top:10px">
-        <label class="mut">One-line reason (optional)</label>
-        <input type="text" id="reason1" placeholder="Optional: what made the best better or the worst worse?">
-      </div>
-      <div class="row">
-        <button type="button" id="tieBtn">Tie: cannot tell</button>
-        <button type="button" id="skipBtn">Skip: unfair or unclear task</button>
-        <span style="flex:1"></span>
-        <button type="button" id="prevBtn">← Prev</button>
-        <button type="button" class="primary big" id="nextBtn">Next →</button>
-      </div>
-    </div>
-  </section>
-
-  <section id="stageConfirm" class="hidden">
-    <div class="panel">
-      <h2>Keep or delete each item</h2>
-      <p class="mut">These skills and principles were written by Claude from your messages, and they were the guidance behind the answers you just compared. Keep the ones that are really you; delete the rest. Edit is optional.</p>
-      <div id="confirmList"></div>
-      <div class="row">
-        <button type="button" class="primary big" id="confirmDone">Continue</button>
-      </div>
-    </div>
-  </section>
-
-  <section id="stageChoose" class="hidden">
-    <div class="panel">
-      <h2>Which set is the better one to keep and build on?</h2>
-      <p class="mut">Two methods wrote these two sets; you are not told which is which. Imagine one set becomes the standing instructions your AI assistant carries into all your future work, and grows over time. same = no real difference; neither = you would keep neither.</p>
-      <div id="sets"></div>
-      <div class="row" id="pickRow"></div>
-      <input type="text" id="reason2" placeholder="One-line reason (optional)" style="margin-top:10px">
-      <input type="text" id="comment2" placeholder="Optional comment (timing, confusion, problems)" style="margin-top:8px">
-      <div class="row" style="margin-top:12px">
-        <button type="button" class="accent big" id="finishBtn">Finish and save web_results.json</button>
-      </div>
-      <p id="reveal" class="note hidden" style="margin-top:14px"></p>
-    </div>
-  </section>
-
-  <section id="doneSec" class="hidden panel">
-    <h2>Saved: one last step in the terminal</h2>
-    <p>Your browser saved <code>web_results.json</code> (usually in your Downloads folder). In the terminal, in the kit folder, run these one at a time:</p>
-    <p><code>python3 study.py web-import</code><br><code>python3 study.py export</code><br><code>python3 study.py bundle</code></p>
-    <p class="mut"><code>web-import</code> finds the file in Downloads or in <code>my-study</code> and writes your share files. Then open each file the tool lists, delete any row you do not want to share, and upload the zip as the README says. The results file stays on your computer.</p>
-  </section>
+  <div id="error" class="err hidden" role="alert"></div>
+  <div id="view"><div class="panel"><span class="spinner"></span>Loading…</div></div>
 </main>
 
 <script>
-(function () {
-  const COND_NAME = { A: "none", B: "direct", C: "structured" };
-  const STORAGE = "hase-study-web-v2";
-  let answers = [];
-  let cards = [];
-  let key = null;
-  let state = emptyState();
-  let idx = 0;
+const TOKEN = "__TOKEN__";
+const ORDER = ["review", "start", "compare", "confirm", "choose", "done"];
+let S = null, poll = null, ui = {};
 
-  function emptyState() {
-    return { order: {}, stage1: {}, decisions: {}, choice: null, choiceReason: "", comments: "" };
-  }
+const $ = (id) => document.getElementById(id);
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
-  const $ = (id) => document.getElementById(id);
-  const show = (id, on) => $(id).classList.toggle("hidden", !on);
+async function api(path, body) {
+  const res = await fetch("/api/" + path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {"X-Study-Token": TOKEN, "Content-Type": "application/json"},
+    body: body === undefined ? undefined : JSON.stringify(body)});
+  const data = await res.json().catch(() => ({error: "The local study server stopped. Run the same command again in the terminal."}));
+  if (!res.ok || data.error && data.phase !== "error") throw new Error(data.error || "Something went wrong.");
+  return data;
+}
+function showError(msg) { const e = $("error"); e.textContent = msg; e.classList.toggle("hidden", !msg); if (msg) e.scrollIntoView({block: "nearest"}); }
+async function act(path, body, btn) {
+  showError("");
+  if (btn) btn.disabled = true;
+  try { S = await api(path, body); ui = {}; render(); window.scrollTo(0, 0); }
+  catch (e) { showError(e.message); }
+  finally { if (btn) btn.disabled = false; }
+}
+async function refresh() {
+  try { S = await api("state"); showError(S.phase === "error" ? S.error : ""); render(); }
+  catch (e) { showError(e.message); }
+}
 
-  function persist() {
-    try {
-      localStorage.setItem(STORAGE, JSON.stringify({ answers, cards, key, state, idx }));
-    } catch (e) {}
-  }
-
-  function restore() {
-    try {
-      const s = JSON.parse(localStorage.getItem(STORAGE) || "null");
-      if (!s || !s.answers || !s.answers.length || !s.cards || !s.key) return false;
-      answers = s.answers; cards = s.cards; key = s.key; state = s.state || emptyState(); idx = s.idx || 0;
-      return true;
-    } catch (e) { return false; }
-  }
-
-  function shuffle(arr) {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
-
-  function ensureOrders() {
-    answers.forEach((t) => {
-      if (!state.order[t.task_id]) {
-        const present = ["A", "B", "C"].filter((c) => t.answers && String(t.answers[c] || "").trim());
-        state.order[t.task_id] = shuffle(present);
-      }
-    });
-  }
-
-  function progress() {
-    const n = answers.length + cards.length + 1;
-    const doneCompare = answers.filter((t) => state.stage1[t.task_id] && taskComplete(t)).length;
-    const doneConfirm = cards.filter((c) => state.decisions[c.card_id]).length;
-    const doneChoice = state.choice ? 1 : 0;
-    const done = doneCompare + doneConfirm + doneChoice;
-    $("bar").style.width = (n ? (done / n) * 100 : 0) + "%";
-    $("count").textContent = `${doneCompare}/${answers.length} compared · ${doneConfirm}/${cards.length} confirmed`;
-  }
-
-  function escapeHtml(s) {
-    return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-
-  function parseAnswers(data) {
-    if (!Array.isArray(data) || !data.length) throw new Error("Answers file must be a non-empty JSON list.");
-    data.forEach((t) => {
-      const a = t.answers || {};
-      const present = ["A", "B", "C"].filter((c) => a[c] && String(a[c]).trim());
-      if (!t.task_id || present.length < 2) throw new Error("Each task needs task_id and ≥2 answers among A/B/C.");
-      if (!t.task && t.opening_prompt) t.task = t.opening_prompt;
-    });
-    return data;
-  }
-
-  function parseCards(data) {
-    if (!Array.isArray(data) || !data.length) throw new Error("Cards file must be a non-empty JSON list.");
-    data.forEach((c) => {
-      if (!c.card_id || !c.title) throw new Error("Each card needs card_id and title.");
-    });
-    return data;
-  }
-
-  function parseKey(data) {
-    if (!data || !data.sets || !data.cards || !data.participant) {
-      throw new Error("key.share.json needs participant, sets, and cards.");
-    }
-    return data;
-  }
-
-  function parseSession(data) {
-    if (!data.answers || !data.cards || !data.key) {
-      throw new Error("web_session.json needs answers, cards, and key.");
-    }
-    return {
-      answers: parseAnswers(data.answers),
-      cards: parseCards(data.cards),
-      key: parseKey(data.key),
-    };
-  }
-
-  function updateLoadStatus() {
-    const bits = [];
-    if (answers.length) bits.push(`${answers.length} tasks`);
-    if (cards.length) bits.push(`${cards.length} cards`);
-    if (key) bits.push("key");
-    $("loadStatus").textContent = bits.length ? "Loaded: " + bits.join(" · ") : "Nothing loaded yet.";
-    $("startBtn").disabled = !(answers.length && cards.length && key);
-  }
-
-  $("sessionFile").onchange = async (e) => {
-    try {
-      const data = parseSession(JSON.parse(await e.target.files[0].text()));
-      answers = data.answers; cards = data.cards; key = data.key;
-      state = emptyState(); idx = 0;
-      $("setupErr").textContent = "";
-      updateLoadStatus();
-      $("phase").textContent = "";
-    } catch (err) { $("setupErr").textContent = err.message; }
-  };
-
-  $("answersFile").onchange = async (e) => {
-    try {
-      answers = parseAnswers(JSON.parse(await e.target.files[0].text()));
-      $("setupErr").textContent = "";
-      updateLoadStatus();
-    } catch (err) { $("setupErr").textContent = err.message; }
-  };
-  $("cardsFile").onchange = async (e) => {
-    try {
-      cards = parseCards(JSON.parse(await e.target.files[0].text()));
-      $("setupErr").textContent = "";
-      updateLoadStatus();
-    } catch (err) { $("setupErr").textContent = err.message; }
-  };
-  $("keyFile").onchange = async (e) => {
-    try {
-      key = parseKey(JSON.parse(await e.target.files[0].text()));
-      $("setupErr").textContent = "";
-      updateLoadStatus();
-    } catch (err) { $("setupErr").textContent = err.message; }
-  };
-
-  $("startBtn").onclick = () => {
-    if (!answers.length || !cards.length || !key) return;
-    ensureOrders();
-    cards.forEach((c) => {
-      if (!state.decisions[c.card_id]) state.decisions[c.card_id] = { decision: "" };
-    });
-    show("setup", false);
-    show("stageCompare", true);
-    setPhase("Compare");
-    renderTask();
-    persist();
-  };
-
-  function cur() {
-    const t = answers[idx];
-    return state.stage1[t.task_id] || { best: "", worst: "", result: "", clarity: "", reason: "", question_note: "" };
-  }
-
-  function setCur(patch) {
-    const t = answers[idx];
-    state.stage1[t.task_id] = { ...cur(), ...patch };
-    persist();
-  }
-
-  function renderTask() {
-    const t = answers[idx];
-    if (!t) return;
-    const order = state.order[t.task_id];
-    const labels = "XYZ".slice(0, order.length).split("");
-    const s1 = cur();
-    $("taskText").textContent = t.task || "(no task text)";
-    $("reason1").value = s1.reason || "";
-    document.querySelectorAll("[data-clarity]").forEach((b) => {
-      b.setAttribute("aria-pressed", s1.clarity === b.dataset.clarity ? "true" : "false");
-    });
-    const root = $("cards");
-    root.innerHTML = "";
-    labels.forEach((lab, i) => {
-      const cond = order[i];
-      const card = document.createElement("div");
-      card.className = "card";
-      if (s1.best === cond) card.classList.add("best");
-      if (s1.worst === cond) card.classList.add("worst");
-      card.innerHTML = `<div class="head"><span>Answer ${lab}</span><span class="mut">${s1.best === cond ? "BEST" : s1.worst === cond ? "WORST" : ""}</span></div>
-        <div class="body"></div><div class="foot"></div>`;
-      card.querySelector(".body").textContent = t.answers[cond];
-      const foot = card.querySelector(".foot");
-      const bBest = document.createElement("button");
-      bBest.type = "button";
-      bBest.textContent = "Best";
-      bBest.setAttribute("aria-pressed", s1.best === cond ? "true" : "false");
-      bBest.onclick = () => {
-        const next = { ...cur(), result: "", best: cur().best === cond ? "" : cond };
-        if (next.worst === next.best) next.worst = "";
-        if (order.length === 2 && next.best && !next.worst) {
-          next.worst = order.find((c) => c !== next.best);
-        }
-        state.stage1[t.task_id] = next;
-        persist(); renderTask();
-      };
-      const bWorst = document.createElement("button");
-      bWorst.type = "button";
-      bWorst.className = "w";
-      bWorst.textContent = "Worst";
-      bWorst.setAttribute("aria-pressed", s1.worst === cond ? "true" : "false");
-      bWorst.onclick = () => {
-        const next = { ...cur(), result: "", worst: cur().worst === cond ? "" : cond };
-        if (next.best === next.worst) next.best = "";
-        state.stage1[t.task_id] = next;
-        persist(); renderTask();
-      };
-      foot.append(bBest, bWorst);
-      root.appendChild(card);
-    });
-    progress();
-  }
-
-  document.querySelectorAll("[data-clarity]").forEach((b) => {
-    b.onclick = () => {
-      setCur({ clarity: b.dataset.clarity, result: cur().result === "tie" || cur().result === "skip" ? "" : cur().result });
-      renderTask();
-    };
+function pills() {
+  const cur = S.phase === "working" ? "start" : S.phase;
+  const i = ORDER.indexOf(cur);
+  document.querySelectorAll(".pill").forEach((p) => {
+    const j = ORDER.indexOf(p.dataset.p);
+    p.classList.toggle("on", j === i); p.classList.toggle("done", i >= 0 && j < i);
   });
+}
 
-  $("tieBtn").onclick = () => {
-    setCur({ best: "", worst: "", result: "tie", clarity: "", reason: $("reason1").value.trim() });
-    renderTask();
+function render() {
+  pills();
+  clearInterval(poll);
+  if (S.phase === "working") poll = setInterval(refresh, 2000);
+  if (S.phase === "error") { $("view").innerHTML = ""; return; }
+  ({review, start: startView, working: startView, compare, confirm, choose, done})[S.phase]();
+}
+
+/* ---------------------------------------------------------------- 1 review */
+function review() {
+  ui.removed = ui.removed || new Set(); ui.removedTasks = ui.removedTasks || new Set();
+  const total = S.days.reduce((n, d) => n + d.length, 0);
+  const days = S.days.map((d, i) => `
+    <div class="day"><h3>Day ${i + 1} of ${S.days.length}</h3>
+    ${d.map((m) => `<label class="msg ${ui.removed.has(m.id) ? "off" : ""}"><input type="checkbox" data-m="${esc(m.id)}" ${ui.removed.has(m.id) ? "" : "checked"}>
+      <span><span class="txt">${esc(m.text)}</span>${m.ai ? `<span class="ai">after the assistant said: …${esc(m.ai)}</span>` : ""}</span></label>`).join("")}
+    </div>`).join("");
+  const replay = S.replay.map((t) => `<label class="msg ${ui.removedTasks.has(t.task_id) ? "off" : ""}"><input type="checkbox" data-t="${esc(t.task_id)}" ${ui.removedTasks.has(t.task_id) ? "" : "checked"}>
+      <span><span class="txt">${esc(t.text)}</span><span class="ai">${esc(t.task_id)} · first message of a chat on ${esc(t.date)}</span></span></label>`).join("");
+  $("view").innerHTML = `
+    <div class="panel">
+      <h1>Check what will be sent</h1>
+      <p>Nothing has been sent yet. Below are the messages picked from your ${esc(S.engine)} history. Only the ticked ones
+      are sent, to <b>your own ${esc(S.engine)} account</b>; the researchers never receive them. Untick anything personal or
+      anything you would rather not send.</p>
+      <p class="mut small">Grey lines are the end of the assistant's previous reply, shown so a short correction like "shorter" makes sense. They are sent together with the message.</p>
+      ${days}
+    </div>
+    <div class="panel">
+      <h2>Tasks the AI will answer</h2>
+      <p class="mut small">You do not solve these. The AI answers each one three ways and you compare the answers in step 3.</p>
+      <h3>Common tasks, the same for everyone</h3>
+      ${S.common.map((t) => `<p class="small"><b>${esc(t.task_id)}</b> ${esc(t.text.split("\n")[0])}</p>`).join("")}
+      ${S.replay.length ? `<h3 style="margin-top:16px">From your own recent chats</h3>
+      <p class="mut small">Keep a task only if you are happy for it to be sent and you could judge answers to it.</p>${replay}` : ""}
+      <label class="field" for="own">Optional: a question you would really ask an AI (added as one more task)</label>
+      <textarea id="own" placeholder="Leave empty to skip">${esc(ui.own ?? S.own)}</textarea>
+      <div class="sticky row spread">
+        <span id="count" class="small"></span>
+        <button class="primary" id="send">Send the ticked items</button>
+      </div>
+    </div>`;
+  const count = () => {
+    const n = total - ui.removed.size, t = S.replay.length - ui.removedTasks.size;
+    $("count").textContent = `${n} of ${total} messages and ${S.common.length + t} tasks ticked`;
+    $("send").textContent = `Send these to my ${S.engine} account`;
   };
-  $("skipBtn").onclick = () => {
-    setCur({ best: "", worst: "", result: "skip", clarity: "", reason: $("reason1").value.trim() });
-    renderTask();
+  document.querySelectorAll("input[data-m]").forEach((c) => c.onchange = () => {
+    c.checked ? ui.removed.delete(c.dataset.m) : ui.removed.add(c.dataset.m);
+    c.closest("label").classList.toggle("off", !c.checked); count();
+  });
+  document.querySelectorAll("input[data-t]").forEach((c) => c.onchange = () => {
+    c.checked ? ui.removedTasks.delete(c.dataset.t) : ui.removedTasks.add(c.dataset.t);
+    c.closest("label").classList.toggle("off", !c.checked); count();
+  });
+  $("own").oninput = (e) => ui.own = e.target.value;
+  $("send").onclick = (e) => act("review", {remove_messages: [...ui.removed], remove_tasks: [...ui.removedTasks],
+                                            own_question: $("own").value}, e.target);
+  count();
+}
+
+/* ---------------------------------------------------------------- 2 generate + answers */
+function startView() {
+  const j = S.job, running = S.phase === "working";
+  $("view").innerHTML = `
+    <div class="panel">
+      <h1>Generate skills and answers</h1>
+      <p>${esc(S.engine)} now does two things with your own login: it writes two sets of skills from the messages you approved,
+      using two different methods, and then answers each task three ways (with no skills, and with each set). You do not
+      need to do anything; it usually takes 5 to 10 minutes. You can leave this page open and come back.</p>
+      ${running ? `<p><span class="spinner"></span><b>${j.step === "answers" ? "Writing the answers…" : "Writing the skills…"}</b></p>`
+                : `<button class="primary" id="go">${j.error ? "Try again (continues where it stopped)" : "Start"}</button>`}
+      ${j.error ? `<div class="err" style="margin-top:14px">${esc(j.error)}</div>` : ""}
+      ${j.log ? `<h3 style="margin-top:16px">Progress</h3><pre class="log">${esc(j.log)}</pre>` : ""}
+    </div>`;
+  if (!running) $("go").onclick = (e) => act("start", {}, e.target);
+}
+
+/* ---------------------------------------------------------------- 3 compare */
+function compare() {
+  const tasks = S.tasks;
+  if (ui.i === undefined || ui.i < 0) { const k = tasks.findIndex((t) => !t.done); ui.i = k < 0 ? 0 : k; }
+  const t = tasks[ui.i];
+  if (!ui.d || ui.d.task_id !== t.task_id) {
+    const prev = t.done && !t.done.result ? t.done : null;
+    ui.d = {task_id: t.task_id, best: prev ? prev.best : "", worst: prev ? prev.worst : "", clarity: prev ? prev.clarity : "",
+            tags: prev ? (prev.tags || "").split(" ").filter(Boolean) : [], reason: prev ? prev.reason : ""};
+  }
+  const d = ui.d, two = t.answers.length === 2;
+  const status = t.done ? (t.done.result ? `saved as ${t.done.result}` : "saved") : "";
+  $("view").innerHTML = `
+    <div class="panel">
+      <div class="row spread"><h3>Task ${ui.i + 1} of ${tasks.length}${t.kind === "replay" ? " · from your own chat" : t.kind === "own" ? " · your own question" : ""}</h3>
+      <span class="small mut">${tasks.filter((x) => x.done).length} of ${tasks.length} done${status ? " · this one " + status : ""}</span></div>
+      <p class="small mut">All answers are to the same task, shown in random order. The letters do not say how an answer was written.
+      Pick the answer you would most like to receive${two ? "" : ", and the one you would least like"}.</p>
+      <div class="task">${esc(t.task)}</div>
+      <div class="grid">${t.answers.map((a) => `
+        <div class="answer"><div class="head">Answer ${a.slot}</div><div class="body">${esc(a.text)}</div>
+        <div class="foot"><button class="chip best ${d.best === a.slot ? "on" : ""}" data-best="${a.slot}">Best</button>
+        ${two ? "" : `<button class="chip worst ${d.worst === a.slot ? "on" : ""}" data-worst="${a.slot}">Worst</button>`}</div></div>`).join("")}
+      </div>
+      <div>
+        <label class="field">How clear was the difference?</label>
+        <div class="row">${[["clear", "clear"], ["slight", "slight"], ["forced", "forced: I had to pick but could hardly tell"]].map(([v, l]) =>
+          `<button class="chip ${d.clarity === v ? "on" : ""}" data-clarity="${v}">${l}</button>`).join("")}</div>
+        <label class="field">What made the difference? Choose all that apply.</label>
+        <div class="row">${S.tags.map((g) => `<button class="chip ${d.tags.includes(g.id) ? "on" : ""}" data-tag="${g.id}">${esc(g.label)}</button>`).join("")}</div>
+        <label class="field" for="reason">In one line, why? (required)</label>
+        <input type="text" id="reason" value="${esc(d.reason)}" placeholder="What made the best better or the worst worse?">
+      </div>
+      <div class="sticky row spread">
+        <div class="row">
+          <button id="back" ${ui.i === 0 ? "disabled" : ""}>← Back</button>
+          <button id="tie" title="You cannot tell them apart">Tie: cannot tell</button>
+          <button id="skip" title="The task itself is unfair or unclear">Skip: not a fair task</button>
+        </div>
+        <button class="primary" id="save">Save and next →</button>
+      </div>
+    </div>`;
+  const rerender = () => { d.reason = $("reason").value; showError(""); compare(); };
+  document.querySelectorAll("[data-best]").forEach((b) => b.onclick = () => { d.best = b.dataset.best; if (d.worst === d.best) d.worst = ""; rerender(); });
+  document.querySelectorAll("[data-worst]").forEach((b) => b.onclick = () => { d.worst = b.dataset.worst; if (d.best === d.worst) d.best = ""; rerender(); });
+  document.querySelectorAll("[data-clarity]").forEach((b) => b.onclick = () => { d.clarity = b.dataset.clarity; rerender(); });
+  document.querySelectorAll("[data-tag]").forEach((b) => b.onclick = () => {
+    const g = b.dataset.tag; d.tags = d.tags.includes(g) ? d.tags.filter((x) => x !== g) : [...d.tags, g]; rerender(); });
+  $("reason").oninput = (e) => d.reason = e.target.value;
+  $("back").onclick = () => { ui.i -= 1; ui.d = null; showError(""); compare(); };
+  const send = async (body, btn) => {
+    showError(""); btn.disabled = true;
+    try {
+      S = await api("compare", {task_id: t.task_id, ...body});
+      if (S.phase !== "compare") { ui = {}; render(); window.scrollTo(0, 0); return; }
+      const next = S.tasks.findIndex((x, k) => k > ui.i && !x.done);
+      ui.i = next >= 0 ? next : S.tasks.findIndex((x) => !x.done); ui.d = null; compare(); window.scrollTo(0, 0);
+    } catch (e) { showError(e.message); btn.disabled = false; }
   };
-
-  function taskComplete(t) {
-    const s = state.stage1[t.task_id];
-    if (!s) return false;
-    if (s.result === "tie" || s.result === "skip") return true;
-    return !!(s.best && s.worst && s.best !== s.worst && s.clarity);
-  }
-
-  $("prevBtn").onclick = () => {
-    setCur({ reason: $("reason1").value.trim() });
-    if (idx > 0) { idx--; renderTask(); persist(); }
+  $("tie").onclick = (e) => {
+    const why = prompt("Why can't you tell them apart? (optional)", ""); if (why === null) return;
+    send({result: "tie", reason: why}, e.target);
   };
-
-  $("nextBtn").onclick = () => {
-    setCur({ reason: $("reason1").value.trim() });
-    const t = answers[idx];
-    if (!taskComplete(t)) {
-      alert("Pick one Best and one Worst answer and say how clear the difference was, or press Tie or Skip.");
-      return;
-    }
-    if (idx < answers.length - 1) { idx++; renderTask(); persist(); return; }
-    show("stageCompare", false);
-    buildConfirm();
-    show("stageConfirm", true);
-    setPhase("Keep or delete");
-    persist();
+  $("skip").onclick = (e) => {
+    const why = prompt("What is wrong with this task? (optional)", ""); if (why === null) return;
+    send({result: "skip", question_note: why}, e.target);
   };
-
-  function buildConfirm() {
-    const root = $("confirmList");
-    root.innerHTML = "";
-    cards.forEach((card, i) => {
-      const d = state.decisions[card.card_id] || { decision: "" };
-      const wrap = document.createElement("div");
-      wrap.className = "item";
-      wrap.innerHTML = `<b>${i + 1}/${cards.length} [${escapeHtml(card.type)}] ${escapeHtml(card.title)}</b>
-        <div class="mut">When: ${escapeHtml(card.when || "")}</div>
-        <div>Do: ${escapeHtml(d.instruction || card.instruction || "")}</div>
-        <div class="actions"></div>
-        <div class="edit hidden" style="margin-top:8px">
-          <label class="mut">When</label>
-          <input type="text" data-edit="when" value="${escapeHtml(d.when || card.when || "")}">
-          <label class="mut" style="display:block;margin-top:6px">Instruction</label>
-          <input type="text" data-edit="instruction" value="${escapeHtml(d.instruction || card.instruction || "")}">
-        </div>`;
-      const actions = wrap.querySelector(".actions");
-      ["keep", "delete", "edit"].forEach((dec) => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.textContent = dec;
-        b.setAttribute("aria-pressed", d.decision === dec ? "true" : "false");
-        b.onclick = () => {
-          state.decisions[card.card_id] = {
-            decision: dec,
-            when: wrap.querySelector('[data-edit="when"]').value.trim() || card.when,
-            instruction: wrap.querySelector('[data-edit="instruction"]').value.trim() || card.instruction,
-          };
-          wrap.querySelector(".edit").classList.toggle("hidden", dec !== "edit");
-          persist();
-          buildConfirm();
-        };
-        actions.appendChild(b);
-      });
-      wrap.querySelectorAll("[data-edit]").forEach((inp) => {
-        inp.oninput = () => {
-          const curD = state.decisions[card.card_id] || { decision: "edit" };
-          curD[inp.dataset.edit] = inp.value;
-          state.decisions[card.card_id] = curD;
-          persist();
-        };
-      });
-      if (d.decision === "edit") wrap.querySelector(".edit").classList.remove("hidden");
-      root.appendChild(wrap);
-    });
-    progress();
-  }
-
-  $("confirmDone").onclick = () => {
-    const missing = cards.filter((c) => !state.decisions[c.card_id] || !state.decisions[c.card_id].decision);
-    if (missing.length) {
-      alert("Keep, delete, or edit every item first.");
-      return;
-    }
-    show("stageConfirm", false);
-    buildChoose();
-    show("stageChoose", true);
-    setPhase("Choose a set");
-    persist();
+  $("save").onclick = (e) => {
+    d.reason = $("reason").value.trim();
+    if (!d.best || (!two && !d.worst)) return showError(two ? "Pick the Best answer, or press Tie or Skip." : "Pick a Best and a Worst answer, or press Tie or Skip.");
+    if (!d.clarity) return showError("Say how clear the difference was.");
+    if (!d.tags.length || !d.reason) return showError("Choose what made the difference and write one line on why.");
+    send({best: d.best, worst: two ? "" : d.worst, clarity: d.clarity, tags: d.tags, reason: d.reason}, e.target);
   };
+}
 
-  function buildChoose() {
-    const root = $("sets");
-    root.innerHTML = "";
-    const meta = Object.fromEntries(key.cards.map((c) => [c.card_id, c]));
-    ["X", "Y"].forEach((letter) => {
-      const method = key.sets[letter];
-      const box = document.createElement("div");
-      box.className = "set";
-      box.innerHTML = `<h3>Set ${letter}</h3>`;
-      cards.forEach((card) => {
-        if (meta[card.card_id].method !== method) return;
-        const dec = state.decisions[card.card_id] || {};
-        const div = document.createElement("div");
-        div.className = "item";
-        div.innerHTML = `<b>[${escapeHtml(card.type)}] ${escapeHtml(card.title)}</b>
-          <div class="mut">${escapeHtml(dec.instruction || card.instruction)} · (${escapeHtml(dec.decision || "")})</div>`;
-        box.appendChild(div);
-      });
-      root.appendChild(box);
-    });
-    const pickRow = $("pickRow");
-    pickRow.innerHTML = "";
-    ["x", "y", "same", "neither"].forEach((v) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = v;
-      b.setAttribute("aria-pressed", state.choice === v ? "true" : "false");
-      b.onclick = () => {
-        state.choice = v;
-        pickRow.querySelectorAll("button").forEach((bb) => bb.setAttribute("aria-pressed", bb.textContent === v ? "true" : "false"));
-        persist();
-      };
-      pickRow.appendChild(b);
-    });
-    $("reason2").value = state.choiceReason || "";
-    $("comment2").value = state.comments || "";
-    progress();
-  }
-
-  $("reason2").oninput = () => { state.choiceReason = $("reason2").value; persist(); };
-  $("comment2").oninput = () => { state.comments = $("comment2").value; persist(); };
-
-  function downloadResults() {
-    const out = {
-      version: 1,
-      participant: key.participant || "",
-      order: state.order,
-      stage1: state.stage1,
-      decisions: state.decisions,
-      choice: { pick: state.choice, reason: state.choiceReason || "", comments: state.comments || "" }
-    };
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: "application/json" }));
-    a.download = "web_results.json";
-    a.click();
-  }
-
-  $("finishBtn").onclick = () => {
-    if (!state.choice) { alert("Pick x, y, same or neither."); return; }
-    state.choiceReason = $("reason2").value.trim();
-    state.comments = $("comment2").value.trim();
-    downloadResults();
-    show("stageChoose", false);
-    show("doneSec", true);
-    setPhase("Save");
-    persist();
+/* ---------------------------------------------------------------- 4 confirm */
+function confirm() {
+  ui.dec = ui.dec || {}; ui.added = ui.added || []; ui.refl = ui.refl || {surprise: "", missing: ""};
+  $("view").innerHTML = `
+    <div class="panel">
+      <h1>The skills written from your messages</h1>
+      <p>You now see them for the first time. They were the guidance behind some of the answers you just compared. Keep
+      each one that is really you, delete the rest, or edit one so it fits. A short note on what is right or wrong
+      about each helps us most.</p>
+      ${S.cards.map((c, i) => { const e = ui.dec[c.card_id] || {}; return `
+        <div class="card">
+          <div class="row spread"><b>${i + 1}. ${esc(c.title)}</b><span class="badge">${esc(c.type)}</span></div>
+          <p class="kv small"><b>When</b>${esc(c.when)}</p><p class="kv small"><b>Do</b>${esc(c.instruction)}</p>
+          <div class="row" style="margin-top:10px">${["keep", "edit", "delete"].map((v) =>
+            `<button class="chip ${e.decision === v ? "on" : ""}" data-dec="${c.card_id}" data-v="${v}">${v[0].toUpperCase() + v.slice(1)}</button>`).join("")}</div>
+          ${e.decision === "edit" ? `<label class="field">When it applies</label><textarea data-edit="${c.card_id}" data-k="when">${esc(e.when ?? c.when)}</textarea>
+            <label class="field">What to do</label><textarea data-edit="${c.card_id}" data-k="instruction">${esc(e.instruction ?? c.instruction)}</textarea>` : ""}
+          <label class="field">What is right or wrong about it? (optional, your own words)</label>
+          <input type="text" data-comment="${c.card_id}" value="${esc(e.comment || "")}">
+        </div>`; }).join("")}
+    </div>
+    <div class="panel">
+      <h2>Two short questions about the skills as a whole</h2>
+      <label class="field" for="surprise">Which one surprised you most, and why? (write none if none)</label>
+      <textarea id="surprise">${esc(ui.refl.surprise)}</textarea>
+      <label class="field" for="missing">Is anything important about how you work missing? (write none if nothing)</label>
+      <textarea id="missing">${esc(ui.refl.missing)}</textarea>
+      <h3 style="margin-top:18px">Optional: add something it missed</h3>
+      ${ui.added.map((a, i) => `<div class="card"><div class="row">
+        <input type="text" data-add="${i}" data-k="title" placeholder="Short title" value="${esc(a.title)}" style="flex:2;min-width:180px">
+        <select data-add="${i}" data-k="type" style="flex:1;min-width:120px"><option value="skill" ${a.type === "skill" ? "selected" : ""}>skill</option><option value="principle" ${a.type === "principle" ? "selected" : ""}>principle</option></select></div>
+        <label class="field">When it applies</label><input type="text" data-add="${i}" data-k="when" value="${esc(a.when)}">
+        <label class="field">What to do</label><input type="text" data-add="${i}" data-k="instruction" value="${esc(a.instruction)}"></div>`).join("")}
+      <button id="addone">+ Add one</button>
+      <div class="sticky row spread"><span class="small mut" id="left"></span><button class="primary" id="save">Save and continue →</button></div>
+    </div>`;
+  const left = () => { const n = S.cards.filter((c) => !(ui.dec[c.card_id] || {}).decision).length;
+    $("left").textContent = n ? `${n} item${n > 1 ? "s" : ""} still need keep, edit or delete` : "All items decided"; };
+  const keepText = () => { ui.refl.surprise = $("surprise").value; ui.refl.missing = $("missing").value; };
+  document.querySelectorAll("[data-dec]").forEach((b) => b.onclick = () => {
+    keepText(); showError(""); const id = b.dataset.dec; ui.dec[id] = {...(ui.dec[id] || {}), decision: b.dataset.v}; confirm(); });
+  document.querySelectorAll("[data-edit]").forEach((t) => t.oninput = () => ui.dec[t.dataset.edit][t.dataset.k] = t.value);
+  document.querySelectorAll("[data-comment]").forEach((t) => t.oninput = () => {
+    const id = t.dataset.comment; ui.dec[id] = {...(ui.dec[id] || {}), comment: t.value}; });
+  document.querySelectorAll("[data-add]").forEach((t) => t.oninput = t.onchange = () => ui.added[+t.dataset.add][t.dataset.k] = t.value);
+  $("addone").onclick = () => { keepText(); ui.added.push({title: "", type: "skill", when: "", instruction: ""}); confirm(); };
+  $("save").onclick = (e) => {
+    keepText();
+    if (S.cards.some((c) => !(ui.dec[c.card_id] || {}).decision)) return showError("Choose keep, edit or delete for every item.");
+    if (!ui.refl.surprise.trim() || !ui.refl.missing.trim()) return showError("Answer both questions (write none if nothing comes to mind).");
+    act("confirm", {decisions: ui.dec, reflection: ui.refl, added: ui.added}, e.target);
   };
+  left();
+}
 
-  const PHASES = ["Load", "Compare", "Keep or delete", "Choose a set", "Save"];
-  function setPhase(name) {
-    const at = PHASES.indexOf(name);
-    PHASES.forEach((n, i) => {
-      const el = $("p" + i);
-      el.className = "pill" + (i < at ? " done" : i === at ? " on" : "");
-    });
-  }
-  setPhase("Load");
+/* ---------------------------------------------------------------- 5 choose */
+function choose() {
+  ui.pick = ui.pick || "";
+  const label = {keep: "kept", edit: "kept, edited", delete: "deleted"};
+  $("view").innerHTML = `
+    <div class="panel">
+      <h1>Which set is the better one to keep?</h1>
+      <p>These are the two sets, made by two different methods and shown without saying which is which. Imagine you keep
+      one set as the standing instructions your AI assistant carries into all your future work, and it grows over time.
+      Which is the better starting point: the one that sounds most like you, is most useful, and is worth building on?</p>
+      <div class="sets">${["X", "Y"].map((L) => `<div class="card"><h2>Set ${L}</h2><ul>${S.sets[L].map((c) =>
+        `<li><b>${esc(c.title)}</b> <span class="badge">${esc(c.type)}</span><br><span class="small">${esc(c.instruction)}</span>
+        <br><span class="status">you ${esc(label[c.decision] || c.decision)} it</span></li>`).join("") || "<li class='mut'>No items</li>"}</ul></div>`).join("")}</div>
+      <div class="row">${[["x", "Set X"], ["y", "Set Y"], ["same", "Same: no real difference"], ["neither", "Neither: I would keep neither"]].map(([v, l]) =>
+        `<button class="chip ${ui.pick === v ? "on" : ""}" data-pick="${v}">${l}</button>`).join("")}</div>
+      <label class="field" for="reason">In one line, why? (required)</label>
+      <input type="text" id="reason" value="${esc(ui.reason || "")}">
+      <label class="field" for="comments">Anything else about the study, such as a confusing step or how long it took? (optional)</label>
+      <textarea id="comments">${esc(ui.comments || "")}</textarea>
+      <div class="sticky row spread"><span></span><button class="primary" id="save">Save my choice →</button></div>
+    </div>`;
+  document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => {
+    ui.reason = $("reason").value; ui.comments = $("comments").value; ui.pick = b.dataset.pick; showError(""); choose(); });
+  $("save").onclick = (e) => {
+    const reason = $("reason").value.trim();
+    if (!ui.pick || !reason) return showError("Choose X, Y, same or neither, and write one line on why.");
+    act("choose", {pick: ui.pick, reason, comments: $("comments").value}, e.target);
+  };
+}
 
-  if (restore()) {
-    updateLoadStatus();
-    $("phase").textContent = "Your earlier choices were restored. Press Start to continue.";
-  }
-})();
+/* ---------------------------------------------------------------- 6 done */
+function done() {
+  const how = {direct: "one pass over your messages with skill-writing guidance, as you would do it today",
+               structured: "found where you corrected the assistant, kept only rules that recur in two or more chats, dropped rules you later reversed, and checked for counterexamples"};
+  const picked = {x: `Set X (${S.sets.X})`, y: `Set Y (${S.sets.Y})`, same: "no real difference", neither: "neither set"}[S.pick];
+  $("view").innerHTML = `
+    <div class="panel">
+      <h1>Thank you, you are done</h1>
+      <h3>Which method made which set</h3>
+      <p><b>Set X = ${esc(S.sets.X)}</b>: ${esc(how[S.sets.X])}.</p>
+      <p><b>Set Y = ${esc(S.sets.Y)}</b>: ${esc(how[S.sets.Y])}.</p>
+      <p>You chose <b>${esc(picked)}</b>.</p>
+    </div>
+    <div class="panel">
+      <h2>Last step: upload one file</h2>
+      <ol>
+        <li>Open the folder and look through the three <code>.share.csv</code> files if you like. They hold your choices
+        and short reasons, never your messages, tasks, answers or the skill texts. If you delete a row, run
+        <code>python3 study.py bundle</code> once more afterwards.</li>
+        <li>Upload <code>study_files.zip</code> at <a href="${esc(S.upload)}" target="_blank" rel="noopener">the course drop folder</a> (no login; the file is named with a random code, not your name).</li>
+      </ol>
+      <div class="row"><button class="primary" id="folder">Open the folder</button><button id="skills">Open my kept skills</button></div>
+      <p class="small mut" style="margin-top:14px">Zip: <code>${esc(S.zip)}</code></p>
+      <p class="small mut">Your kept skills are ready to use in <code>${esc(S.skills)}</code> (see the README there). You can close this
+      page and press Ctrl+C in the terminal.</p>
+    </div>`;
+  $("folder").onclick = () => api("open", {what: "folder"}).catch((e) => showError(e.message));
+  $("skills").onclick = () => api("open", {what: "skills"}).catch((e) => showError(e.message));
+}
+
+refresh();
 </script>
 </body>
 </html>

@@ -855,85 +855,21 @@ FILE_REFS = re.compile(r"\.(md|py|json|csv|pdf|js|ts|ipynb)\b|\[URL\]|\brun\b|\b
 SHARE_FILES = ("decisions.share.csv", "compare.share.csv", "choice.share.csv", "key.share.json")
 
 
+def open_path(path):
+    """Open a file or folder with the system viewer (Finder on a Mac)."""
+    path = str(Path(path).resolve())
+    if sys.platform == "darwin":
+        subprocess.run(["open", path], check=False)
+    elif sys.platform.startswith("win"):
+        os.startfile(path)  # type: ignore[attr-defined]
+    else:
+        subprocess.run(["xdg-open", path], check=False)
+
+
 def web(args):
-    """Write one browser session file and open the local judging page (compare → confirm → choose)."""
-    folder = args.folder
-    answers_path = folder / "eval_answers.local.json"
-    cards_path = folder / "cards.local.json"
-    key_path = folder / "key.share.json"
-    for path, label in ((answers_path, "answers"), (cards_path, "cards"), (key_path, "key")):
-        if not path.exists():
-            raise ValueError(f"Missing {path.name}. Run generate and answers first ({label}).")
-    payload = {
-        "answers": read_json(answers_path),
-        "cards": read_json(cards_path),
-        "key": read_json(key_path),
-    }
-    out = folder / "web_session.json"
-    save_json(out, payload)
-    page = Path(__file__).resolve().parent / "study-web" / "index.html"
-    if not page.exists():
-        raise ValueError(f"Web page missing: {page}")
-    print("Browser judging page (local files only; nothing is uploaded).")
-    print(f"  Page: {page}")
-    print(f"  Session file to load: {out.resolve()}")
-    show_file(out)
-    if not args.no_open:
-        try:
-            if sys.platform == "darwin":
-                subprocess.run(["open", str(page)], check=False)
-            elif sys.platform.startswith("win"):
-                os.startfile(str(page))  # type: ignore[attr-defined]
-            else:
-                subprocess.run(["xdg-open", str(page)], check=False)
-        except OSError as error:
-            print(f"Could not open the browser automatically ({error}). Open the page path above yourself.")
-    print("Judge the answers on the page. When it saves web_results.json, come back here and run, one at a time:")
-    print(f"  python3 study.py web-import --folder {folder}\n  python3 study.py export --folder {folder}\n"
-          f"  python3 study.py bundle --folder {folder}")
-
-
-def web_import(args):
-    """Turn the browser page's web_results.json into the same local state and share files the terminal steps write."""
-    folder = args.folder
-    candidates = [args.results] if args.results else [folder / "web_results.json", Path.home() / "Downloads" / "web_results.json"]
-    path = next((p for p in candidates if p and Path(p).exists()), None)
-    if path is None:
-        raise ValueError("web_results.json not found in the study folder or in Downloads. Finish the browser page "
-                         "first, or pass --results PATH.")
-    results = read_json(path)
-    key = read_json(folder / "key.share.json")
-    if results.get("participant") != key["participant"]:
-        raise ValueError("web_results.json belongs to a different study folder (participant code differs).")
-    tasks = load_eval_tasks(folder / "eval_answers.local.json")
-    stage1 = results.get("stage1", {})
-    for task in tasks:
-        s1 = stage1.get(task["task_id"])
-        done = s1 and (s1.get("result") in ("tie", "skip") or (s1.get("best") and s1.get("worst") and s1.get("clarity")))
-        if not done:
-            raise ValueError(f"Task {task['task_id']} was not finished in the browser page. Open the page and complete it.")
-    cards = read_cards(folder)
-    decisions = {}
-    for card in cards:
-        entry = results.get("decisions", {}).get(card["card_id"])
-        if not entry or entry.get("decision") not in ("keep", "edit", "delete"):
-            raise ValueError(f"Item {card['card_id']} has no keep, edit or delete decision in the browser page.")
-        decisions[card["card_id"]] = ({"decision": entry["decision"]} if entry["decision"] != "edit" else
-                                      {"decision": "edit", "when": entry.get("when") or card["when"],
-                                       "instruction": entry.get("instruction") or card["instruction"]})
-    choice = results.get("choice", {})
-    if choice.get("pick") not in ("x", "y", "same", "neither"):
-        raise ValueError("No set choice in the browser page.")
-    save_json(folder / "compare.local.json", {"order": results["order"], "stage1": stage1, "checklist": {}})
-    state_path = folder / "decisions.local.json"
-    state = read_json(state_path) if state_path.exists() else {"participant": key["participant"], "added": []}
-    state.update({"decisions": decisions, "added_done": True, "choice": {
-        "pick": choice["pick"], "reason": choice.get("reason", ""), "comments": choice.get("comments", "")}})
-    save_json(state_path, state)
-    sub = argparse.Namespace(folder=folder, checklist=False)
-    compare(sub)
-    confirm(sub)
-    choose(sub)
+    """The whole study in the browser: review, generate, compare, keep or delete, choose, files to upload."""
+    import webapp
+    webapp.run(args)
 
 
 def bundle(args):
@@ -1305,15 +1241,13 @@ def main():
         sub = commands.add_parser(name, help=text)
         sub.add_argument("--folder", type=Path, default=Path("my-study"))
         sub.set_defaults(handler=handler)
-    web_cmd = commands.add_parser(
-        "web", help="open the local browser page for compare → confirm → choose (after answers)")
+    web_cmd = commands.add_parser("web", help="do the whole study in your browser (recommended)")
+    wsource = web_cmd.add_mutually_exclusive_group(required=False)
+    wsource.add_argument("--claude-logs", nargs="?", const=CLAUDE_DIR, type=Path)
+    wsource.add_argument("--codex-logs", nargs="?", const=CODEX_DIR, type=Path)
     web_cmd.add_argument("--folder", type=Path, default=Path("my-study"))
-    web_cmd.add_argument("--no-open", action="store_true", help="write web_session.json only; do not open a browser")
+    web_cmd.add_argument("--no-open", action="store_true", help="print the address instead of opening the browser")
     web_cmd.set_defaults(handler=web)
-    imp = commands.add_parser("web-import", help="after the browser page: write your share files from web_results.json")
-    imp.add_argument("--folder", type=Path, default=Path("my-study"))
-    imp.add_argument("--results", type=Path, help="path of web_results.json (default: the study folder or Downloads)")
-    imp.set_defaults(handler=web_import)
     asking = commands.add_parser("ask", help="optional: add a question of your own as the last task")
     asking.add_argument("--tasks", type=Path, default=Path("tasks.review.json"))
     asking.set_defaults(handler=ask)
