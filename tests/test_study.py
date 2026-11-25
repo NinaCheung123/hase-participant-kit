@@ -684,6 +684,12 @@ class WebApp(unittest.TestCase):
         names = sorted(zipfile.ZipFile(app.folder / "study_files.zip").namelist())
         self.assertEqual(names, sorted(study.SHARE_FILES))
         self.assertTrue((app.folder / "my-skills" / "principles.md").exists())
+        path = app.folder / "compare.share.csv"                   # the participant deletes a row, then updates the zip
+        lines = path.read_text().splitlines()
+        path.write_text("\n".join(lines[:-1]) + "\n")
+        app.do_bundle({})
+        zipped = zipfile.ZipFile(app.folder / "study_files.zip").read("compare.share.csv").decode()
+        self.assertEqual(len(zipped.splitlines()), len(lines) - 1)
 
     def test_server_needs_the_token(self):
         import threading, urllib.request, urllib.error

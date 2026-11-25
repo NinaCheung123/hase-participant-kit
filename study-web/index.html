@@ -430,17 +430,24 @@ function done() {
       <h2>Last step: upload one file</h2>
       <ol>
         <li>Open the folder and look through the three <code>.share.csv</code> files if you like. They hold your choices
-        and short reasons, never your messages, tasks, answers or the skill texts. If you delete a row, run
-        <code>python3 study.py bundle</code> once more afterwards.</li>
+        and short reasons, never your messages, tasks, answers or the skill texts. If you delete a row, save the file
+        and press <b>Update the zip</b> so the zip contains your edited version.</li>
         <li>Upload <code>study_files.zip</code> at <a href="${esc(S.upload)}" target="_blank" rel="noopener">the course drop folder</a> (no login; the file is named with a random code, not your name).</li>
       </ol>
-      <div class="row"><button class="primary" id="folder">Open the folder</button><button id="skills">Open my kept skills</button></div>
+      <div class="row"><button class="primary" id="folder">Open the folder</button><button id="rezip">Update the zip</button><button id="skills">Open my kept skills</button></div>
+      <p class="small" id="rezipped" role="status" style="margin-top:8px"></p>
       <p class="small mut" style="margin-top:14px">Zip: <code>${esc(S.zip)}</code></p>
       <p class="small mut">Your kept skills are ready to use in <code>${esc(S.skills)}</code> (see the README there). You can close this
       page and press Ctrl+C in the terminal.</p>
     </div>`;
   $("folder").onclick = () => api("open", {what: "folder"}).catch((e) => showError(e.message));
   $("skills").onclick = () => api("open", {what: "skills"}).catch((e) => showError(e.message));
+  $("rezip").onclick = async (e) => {
+    showError(""); e.target.disabled = true;
+    try { await api("bundle", {}); $("rezipped").textContent = "Zip updated with your current files at " + new Date().toLocaleTimeString() + "."; }
+    catch (err) { showError(err.message); }
+    finally { e.target.disabled = false; }
+  };
 }
 
 refresh();

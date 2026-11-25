@@ -301,6 +301,12 @@ class App:
         captured(study.export, ns)
         captured(study.bundle, ns)
 
+    def do_bundle(self, _body):
+        """Rebuild study_files.zip from the share files as they are now (after the participant deleted rows)."""
+        if self.phase() != "done":
+            raise ValueError("Finish the study first.")
+        captured(study.bundle, argparse.Namespace(folder=self.folder))
+
     def do_open(self, body):
         target = self.folder if body.get("what") != "skills" else self.folder / "my-skills"
         study.open_path(target)
@@ -309,7 +315,8 @@ class App:
 def make_handler(app, token):
     page = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", token)
     actions = {"review": app.do_review, "start": app.do_start, "compare": app.do_compare,
-               "confirm": app.do_confirm, "choose": app.do_choose, "open": app.do_open}
+               "confirm": app.do_confirm, "choose": app.do_choose, "open": app.do_open,
+               "bundle": app.do_bundle}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):   # keep the terminal quiet
